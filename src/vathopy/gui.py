@@ -317,6 +317,8 @@ def make_handler(maps, favourites, preview_size, auth=None, palettes_dir=None):
                     return self._export(req)
                 if path == "/api/save":
                     return self._save(req)
+                if path == "/api/save_local":
+                    return self._save_local(req)
                 if path == "/api/look":
                     name = _safe_name(req.get("name", ""))
                     lk = json.loads((favourites / "looks" / f"{name}.json").read_text())
@@ -356,8 +358,23 @@ def make_handler(maps, favourites, preview_size, auth=None, palettes_dir=None):
             ok, png = cv2.imencode(".png", np.ascontiguousarray(codes[:, :, ::-1]))
             if not ok:
                 raise ValueError("could not encode the PNG")
-            name = (_safe_name(Path(req["map"]).stem) or "depth") + "_" + (_safe_name(req.get("name")) or "vathopy") + ".png"
-            return self._send(200, png.tobytes(), "image/png", {"Content-Disposition": f'attachment; filename="{name}"'})
+            return self._send(200, png.tobytes(), "image/png",
+                              {"Content-Disposition": f'attachment; filename="{_out_name(req)}.png"'})
+
+        def _save_local(self, req):
+            """The full-quality result (as Download PNG gives it) written to the favourites folder, never overwriting."""
+            s = req.get("settings", {})
+            d = maps.depth(req["map"], float(s.get("smooth", 0) or 0))
+            out, _ = render(d, look_from_settings(s))
+            favourites.mkdir(parents=True, exist_ok=True)
+            stem = _out_name(req)
+            png = favourites / f"{stem}.png"
+            n = 1
+            while png.exists():
+                png = favourites / f"{stem}-{n:03d}.png"
+                n += 1
+            VIO.write_png(out, str(png), 16)
+            return self._send(200, {"png": str(png), "png_url": f"/api/file?name={png.name}"})
 
         def _file(self):
             """A saved PNG or look from the favourites folder, as a download."""
@@ -398,6 +415,11 @@ def make_handler(maps, favourites, preview_size, auth=None, palettes_dir=None):
                                     "look_url": f"/api/file?name=looks/{look_path.name}"})
 
     return Handler
+
+
+def _out_name(req):
+    """<depth map>_<look name or "vathopy">, for downloaded and locally saved PNGs."""
+    return (_safe_name(Path(req["map"]).stem) or "depth") + "_" + (_safe_name(req.get("name")) or "vathopy")
 
 
 def serve(depth_dir, favourites, host="127.0.0.1", port=8770, preview_size=1280, palettes_dir=None):

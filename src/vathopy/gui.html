@@ -61,8 +61,8 @@
   main.actual .work { align-items: flex-start; max-width: none; }
   main.actual #view { max-width: none; max-height: none; cursor: zoom-out; }
   main #view.picking { cursor: crosshair; }
-  #pick, #download { display: inline-flex; align-items: center; gap: 7px; }
-  #download .icon { width: 18px; height: 18px; stroke: #fff; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; fill: none; flex: none; }
+  #pick, #download, #save_local { display: inline-flex; align-items: center; gap: 7px; }
+  #download .icon, #save_local .icon { width: 18px; height: 18px; stroke: #fff; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; fill: none; flex: none; }
   #pick .plus { width: 20px; height: 20px; stroke: #fff; stroke-width: 3.2; stroke-linecap: round; flex: none; }
   button.ghost[aria-pressed=true] { border-color: var(--accent); color: var(--focus); }
   .band { border: 1px solid var(--line); border-radius: 8px; padding: 2px 8px 8px; margin-top: 8px; }
@@ -153,7 +153,9 @@
   <main id="stage"><div class="work">
     <div id="title"></div>
     <span id="empty">Loading…</span><img id="view" alt="" hidden>
-    <div class="below" id="below" hidden><button class="ghost" id="download" title="Download the full-quality result as a 16-bit PNG">
+    <div class="below" id="below" hidden><button class="ghost" id="save_local" title="Save the full-quality result as a 16-bit PNG in the favourites folder on the machine running vathopy">
+      <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 3.5h9.5L16.5 6.5v10h-12.5zM7 3.5v4h6v-4M7 16.5v-5h6v5"/></svg>Save local</button>
+      <button class="ghost" id="download" title="Download the full-quality result as a 16-bit PNG">
       <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 16.5h12"/></svg>Download PNG</button>
       <span class="note" id="downloaded"></span></div>
   </div></main>
@@ -483,6 +485,15 @@ $("save").onclick = async () => {
   } catch (e) { $("saved").textContent = "save failed: " + e.message; }
 };
 
+$("save_local").onclick = async () => {
+  const btn = $("save_local");
+  btn.disabled = true; $("downloaded").textContent = "saving the PNG…";
+  try {
+    const j = await getJSON("/api/save_local", { map: $("map").value, settings: settings(), name: $("name").value });
+    $("downloaded").textContent = "Saved " + j.png;
+  } catch (e) { $("downloaded").textContent = "save failed: " + e.message; }
+  finally { btn.disabled = false; }
+};
 $("download").onclick = async () => {
   const btn = $("download");
   btn.disabled = true; $("downloaded").textContent = "rendering the PNG…";

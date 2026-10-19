@@ -217,6 +217,9 @@ A small local web app (Python standard library server + one HTML page, no extra 
 - **Auto (probe):** sets smoothing and the cycle or contour count to the most the map carries cleanly (see Probing below).
 - **Looks:** **Save** writes the full-quality 16-bit PNG to `--favourites` (default `~/Pictures/vathography/favorites`, never overwriting) and the look to `looks/<name>.json`; saved looks load back into the controls, and `vathopy render -l looks/<name>.json` reproduces the PNG exactly.
 
+- **Save local** (under the picture, left of Download PNG): writes the full-quality result as a 16-bit PNG to
+  `--favourites` on the machine running vathopy, named `<depth map>_<look name or "vathopy">.png` and never
+  overwriting (`-001`, `-002`, …). It's the same picture Download PNG gives, without saving the look.
 - **Download PNG** (under the picture): downloads the full-quality result as a 16-bit PNG straight to the browser (named after the
   depth map and the look name, if one is typed), without saving anything on the server. It's always the result,
   even while the Highlights view is showing.
