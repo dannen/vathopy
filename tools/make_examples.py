@@ -180,9 +180,11 @@ def main():
             {"at": at("twilight5", 0.92, 0.48), "width": 0.06, "softness": 0.03},
             {"at": at("twilight5", 0.64, 0.55), "width": 0.03, "softness": 0.02, "strength": 0.7}], **smooth)), h=300),
          "two distances"),
-        (fit(render(d["twilight3"], look("WHITE_TO_BLACK", base="WHITE", focus=[
-            {"at": at("twilight3", 0.45, 0.5), "width": 0.15, "softness": 0.05, "strength": -1}], **smooth)), h=300),
-         "--base WHITE, strength -1"),
+        (fit(render(t2, look("WHITE_TO_BLACK", base="BLACK", focus=[{"at": at("twilight2", 0.24, 0.45), "width": 0.06,
+                                                                     "softness": 0.04, "reach_w": 0.16, "reach_h": 0.5}],
+                             **smooth)), h=300), "reach: one subject"),
+        (fit(render(t5, look("MIST", focus=[{"depth": 0.6, "width": 0.06, "softness": 0.075, "angle": 135, "lean": 60}],
+                             **smooth)), h=300), "MIST, lean 60, angle 135"),
     ]), out / "focus.jpg")
 
     # Contact sheet: rows = maps, columns = features.

@@ -197,6 +197,82 @@ def test_focus_is_a_flat_band_at_that_depth():
     assert out2[10, 100, 0] == pytest.approx(0.0, abs=1e-5) and out2[10, 20, 0] == pytest.approx(1.0, abs=1e-5)
 
 
+def test_leaned_focus_is_a_tilted_band_through_the_pivot():
+    import math
+    from vathopy.engine import focus_weights
+    h, w = 60, 90
+    d = np.tile(np.linspace(0.2, 0.8, h, dtype=np.float32)[:, None], (1, w))   # a floor: nearer lower down
+    fo = {"depth": 0.5, "width": 0.05, "softness": 0.02, "angle": 135.0, "lean": 60.0, "pivot": [0.3, 0.6]}
+    lk = {"base": "BLACK", "focus": [fo]}
+    out, _ = vathopy.render(d, lk)
+    # the add-on band it stands for: normal tipped 60 degrees towards 135, through the pivot at that depth
+    pw, ph = 1.5, 1.5 / (w / h)
+    a, le = math.radians(135), math.radians(60)
+    lo, hi = float(d.min()), float(d.max())
+    band = {"normal": [math.sin(le) * math.cos(a), math.sin(le) * math.sin(a), math.cos(le)],
+            "center": [(0.3 - 0.5) * pw, (0.5 - 0.6) * ph, (lo + 0.5 * (hi - lo) - 0.5) * 4.0],
+            "width": 0.05 * (hi - lo) * 4.0 / math.cos(le), "softness": 0.02 * (hi - lo) * 4.0 / math.cos(le)}
+    ref, _ = vathopy.render(d, {"base": "BLACK", "bands": [band]})                # width kept as the thickness
+    assert np.array_equal(out, ref)
+    flat, _ = vathopy.render(d, {"base": "BLACK", "focus": [dict(fo, lean=0.0)]})
+    assert not np.allclose(out, flat)                                   # leaning changes which pixels light up
+    lit = out[..., 0] > 0.5
+    assert lit.any() and not lit.all(axis=1).any()                      # a diagonal: no row fully lit
+    (wt,) = focus_weights(d, lk)
+    assert np.allclose(wt, out[..., 0], atol=1e-6)                      # the GUI's highlight regions match
+    with pytest.raises(ValueError):
+        vathopy.normalise_look({"focus": [dict(fo, lean=91)]})
+    with pytest.raises(ValueError):
+        vathopy.normalise_look({"focus": [dict(fo, lean=-91)]})
+    neg, _ = vathopy.render(d, {"base": "BLACK", "focus": [dict(fo, lean=-60.0)]})
+    turned, _ = vathopy.render(d, {"base": "BLACK", "focus": [dict(fo, lean=60.0, angle=135.0 + 180.0)]})
+    assert np.allclose(neg, turned, atol=1e-5) and not np.allclose(neg, out)   # the other way = angle + 180
+    up_fo = dict(fo, lean=90.0, angle=0.0)
+    up, _ = vathopy.render(d, {"base": "BLACK", "focus": [up_fo]})
+    assert np.array_equal(up[0], up[-1])                                # upright: the same in every row,
+    assert up[..., 0].max() > 0.99 and up[..., 0].min() < 1e-6          # a vertical stripe whatever the depth
+    (wu,) = focus_weights(d, {"base": "BLACK", "focus": [up_fo]})
+    assert np.allclose(wu, up[..., 0], atol=1e-6)
+    with pytest.raises(ValueError):
+        vathopy.normalise_look({"focus": [dict(fo, pivot=[0.5])]})
+    # a pixel pick puts the pivot on that pixel
+    at, _ = vathopy.render(d, {"base": "BLACK", "focus": [{"at": [27, 36], "width": 0.05, "softness": 0.02,
+                                                           "angle": 135.0, "lean": 60.0}]})
+    picked = dict(fo, pivot=[27.5 / w, 36.5 / h], depth=float((d[h - 1 - 36, 27] - lo) / (hi - lo)))
+    piv, _ = vathopy.render(d, {"base": "BLACK", "focus": [picked]})
+    assert np.allclose(at, piv, atol=1e-4)
+
+
+def test_focus_reach_confines_it_to_an_oval():
+    from vathopy.engine import focus_weights
+    h, w = 60, 90
+    d = np.tile(np.linspace(0.2, 0.8, h, dtype=np.float32)[:, None], (1, w))   # a floor: one depth per row
+    fo = {"depth": 0.5, "width": 0.1, "softness": 0.02, "pivot": [0.3, 0.5], "reach_w": 0.15, "reach_h": 0.3}
+    lk = {"base": "BLACK", "focus": [fo]}
+    out, info = vathopy.render(d, lk)
+    row = h - 1 - 30                                                         # bottom-up row through the pivot
+    assert out[row, 27, 0] > 0.99                                            # at the pivot: lit
+    assert out[row, 75, 0] < 1e-6                                            # same depth, outside the oval: dark
+    unlimited, _ = vathopy.render(d, {"base": "BLACK", "focus": [dict(fo, reach_w=0.0, reach_h=0.0)]})
+    assert unlimited[row, 75, 0] > 0.99                                      # which the plain focus lights
+    # exactly the add-on band plus a Keep mask area aimed at it
+    lo, hi, s_eff, pw, ph = 0.2, 0.8, 4.0, 1.5, 1.5 / (w / h)
+    z, span = (lo + 0.5 * (hi - lo) - 0.5) * s_eff, (hi - lo) * s_eff
+    ref, _ = vathopy.render(d, {"base": "BLACK",
+        "bands": [{"id": "focus1", "normal": [0, 0, 1], "center": [0, 0, z], "width": 0.1 * span, "softness": 0.02 * span}],
+        "areas": [{"mode": "MASK", "position": [(0.3 - 0.5) * pw, 0.0, z], "radius": [0.15 * pw, 0.3 * ph, (0.05 + 0.02) * span * 4],
+                   "mask": {"strength": 1.0, "side": "KEEP", "edge": 0.5, "target": "BAND:focus1"}}]})
+    assert np.allclose(out, ref, atol=1e-6)
+    (wt,) = focus_weights(d, lk)
+    assert np.allclose(wt, out[..., 0], atol=1e-5)                           # the GUI's highlight regions match
+    with pytest.raises(ValueError):
+        vathopy.normalise_look({"focus": [dict(fo, reach_edge=2)]})
+    from vathopy.cli import focus_spec
+    assert focus_spec("0.5:reach=0.2") == {"depth": 0.5, "reach_w": 0.2, "reach_h": 0.2}
+    assert focus_spec("0.5:reach_w=0.1:reach_h=0.4:reach_edge=0.9") == {"depth": 0.5, "reach_w": 0.1, "reach_h": 0.4,
+                                                                         "reach_edge": 0.9}
+
+
 def test_focus_at_a_pixel_and_validation():
     d = np.tile(np.linspace(0, 1, 200, dtype=np.float32), (20, 1))
     at, _ = vathopy.render(d, {"base": "BLACK", "focus": [{"at": [150, 5], "width": 0.05, "softness": 0.02}]})
@@ -211,6 +287,11 @@ def test_focus_at_a_pixel_and_validation():
     assert focus_spec("0.8:0.1:0.05") == {"depth": 0.8, "width": 0.1, "softness": 0.05}
     assert focus_spec("@10,20:0.2") == {"at": [10.0, 20.0], "width": 0.2}
     assert focus_spec("0.8:0.1:0.05:-0.6") == {"depth": 0.8, "width": 0.1, "softness": 0.05, "strength": -0.6}
+    assert focus_spec("@10,20:angle=135:lean=60:0.05") == {"at": [10.0, 20.0], "width": 0.05, "angle": 135.0, "lean": 60.0}
+    assert focus_spec("0.5:lean=-30")["lean"] == -30.0
+    for bad in ("0.5:lean=91", "0.5:lean=-91", "0.5:tilt=3", "0.5:angle="):
+        with pytest.raises(argparse.ArgumentTypeError):
+            focus_spec(bad)
     for bad in ("x", "1.5", "@10", "0.5:0.1:0.1:0.1:0.1", "0.5:0.1:0.1:2"):
         with pytest.raises(argparse.ArgumentTypeError):
             focus_spec(bad)
@@ -339,9 +420,11 @@ def test_gui_settings_round_trip_and_api(tmp_path):
     s = {"palette": "EMBER_TO_BLACK", "invert": True, "equalize": True, "cycles": 2.5, "contours": 6,
          "contour_strength": 0.5, "contour_width": 3, "smooth": 4, "supersample": 3,
          "focus_style": "black_on_white", "focus": [{"depth": 0.4, "width": 0.08, "softness": 0.04, "strength": 0.6,
-                                                     "enabled": True},
+                                                     "enabled": True, "angle": 45.0, "lean": 30.0, "x": 0.25, "y": 0.75,
+                                                     "reach_w": 0.2, "reach_h": 0.4, "reach_edge": 0.7, "locked": True},
                                                     {"depth": 0.8, "width": 0.05, "softness": 0.02, "strength": 1.0,
-                                                     "enabled": False}]}
+                                                     "enabled": False, "angle": 0.0, "lean": 0.0,
+                                                     "reach_w": 0.0, "reach_h": 0.0, "reach_edge": 0.5, "locked": False}]}
     lk = gui.look_from_settings(s)
     lk["smooth_depth"] = 4.0
     back = gui.settings_from_look(lk)
@@ -350,6 +433,14 @@ def test_gui_settings_round_trip_and_api(tmp_path):
     assert gui.look_from_settings(s, preview=True)["supersample"] == 1
     assert lk["base"] == "WHITE" and lk["focus"][0]["strength"] == -0.6     # the style sets the sign
     assert len(gui.palettes()) == len(PRESETS) + 1
+    for lean, angle, want in ((60, 135, (-60, -45)), (60, 270, (60, -90)), (60, -45, (60, -45)), (30, 0, (30, 0))):
+        got = gui._slider_lean_angle(lean, angle)
+        assert got == pytest.approx(want), (lean, angle)
+        a, b = vathopy.engine.focus_bands([{"depth": 0.5, "width": 0.1, "softness": 0.05, "angle": angle, "lean": lean,
+                                            "enabled": True, "strength": 1.0}], 0, 1, 4.0, 0.5, 1.5, 1.0)[0], \
+               vathopy.engine.focus_bands([{"depth": 0.5, "width": 0.1, "softness": 0.05, "angle": got[1], "lean": got[0],
+                                            "enabled": True, "strength": 1.0}], 0, 1, 4.0, 0.5, 1.5, 1.0)[0]
+        assert np.allclose(np.abs(np.dot(a["normal"], b["normal"])), 1.0)   # the same plane
     assert gui._safe_name("a b/../c") == "a_b_c"
     # the server: list, render, refuse paths outside its folder
     depth_dir = tmp_path / "depth"; depth_dir.mkdir()
@@ -374,6 +465,15 @@ def test_gui_settings_round_trip_and_api(tmp_path):
         assert code == 200 and body[:8] == b"\x89PNG\r\n\x1a\n"
         code, body = post("/api/depth_at", {"map": "d.exr", "settings": s, "x": 0.5, "y": 0.0})
         assert code == 200 and json.loads(body)["depth"] > 0.9               # top row = near (bright)
+        code, body = post("/api/export", {"map": "d.exr", "settings": s, "name": "my look"})
+        assert code == 200 and body[:8] == b"\x89PNG\r\n\x1a\n" and body[24] == 16      # 16-bit
+        import cv2
+        got = cv2.imdecode(np.frombuffer(body, np.uint8), cv2.IMREAD_UNCHANGED)
+        ref_path = tmp_path / "ref.png"
+        out, _ = vathopy.render(gui.Maps(depth_dir).depth("d.exr", 4.0), gui.look_from_settings(s))
+        vathopy.write_png(out, str(ref_path), 16)
+        assert np.array_equal(got, cv2.imread(str(ref_path), cv2.IMREAD_UNCHANGED))  # the same as Save writes
+        assert not (tmp_path / "fav").exists()                                     # nothing written on the server
         code, body = post("/api/save", {"map": "d.exr", "settings": s, "name": "my look"})
         assert code == 200 and (tmp_path / "fav" / "looks" / "my_look.json").exists()
         saved = json.loads(body)
@@ -417,6 +517,11 @@ def test_gui_highlight_tints_each_focus():
     lk["focus"][1]["enabled"] = False
     off = gui.highlight(d, lk).astype(int)
     assert off[10, 150].max() - off[10, 150].min() < 10                 # switched off: no tint
+    lk["focus"][1]["enabled"] = True
+    lk["focus"][1]["strength"] = 0.0
+    faint = gui.highlight(d, lk).astype(int)
+    assert 0 < faint[10, 150].max() - faint[10, 150].min() < (img[10, 150].max() - img[10, 150].min()) / 2
+    lk["focus"][1]["enabled"] = False                                  # strength 0: a faint tint only
     out, info = vathopy.render(d, dict(lk, base="BLACK"))
     assert info["terms"] == 1 and out[10, 150, 0] < 1e-6 and out[10, 50, 0] > 0.99   # nor in the result
 

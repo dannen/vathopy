@@ -31,6 +31,16 @@ extracted from Blender render exactly as before):
   renders exactly like one placed in Blender. strength 1 lifts that depth to white, -1 sinks it to
   black; with ``"base": "BLACK"`` the result is a white subject on black. ``"at": [x, y]`` instead of
   ``depth`` picks the depth under that pixel (top-down pixel coordinates of the depth map).
+  ``"lean"`` (-90 to 90 degrees; negative tilts the other way) tilts the band's plane away from flat, so it cuts through the scene at an
+  angle (a shaft of light across a floor) instead of following one depth; at 90 it stands upright and
+  ignores depth, a straight stripe across the picture; ``"angle"`` (degrees,
+  counter-clockwise from the right) turns that tilt around the picture. The tilted plane passes
+  through ``"pivot": [fx, fy]`` (fractions of the picture, top-down; default the centre, or the
+  picked pixel with ``at``) at the focus depth.
+  ``"reach_w"`` / ``"reach_h"`` (half-width and half-height as fractions of the picture's width and
+  height, 0 = unlimited) confine the focus to an oval around the pivot, soft over ``"reach_edge"``
+  (0-1): an isolated subject with a pool of light at its feet instead of everything at that depth.
+  It's the add-on's mask area (ellipsoid, Keep) aimed at that focus's band.
 """
 
 import copy
@@ -62,7 +72,9 @@ DEFAULT_LOOK = {
 
 DEFAULT_CONTOURS = {"cycles": 4.0, "strength": 0.85, "width": 2.0}
 
-DEFAULT_FOCUS = {"depth": None, "at": None, "width": 0.1, "softness": 0.05, "strength": 1.0, "enabled": True}
+DEFAULT_FOCUS = {"depth": None, "at": None, "width": 0.1, "softness": 0.05, "strength": 1.0, "enabled": True,
+                 "angle": 0.0, "lean": 0.0, "pivot": None, "reach_w": 0.0, "reach_h": 0.0, "reach_edge": 0.5,
+                 "locked": False}  # locked: the GUI's lock, kept with the look; no effect on the picture
 
 DEFAULT_CONTROL = {"center": 0.5, "offset": 0.0, "feather": 0.02, "from_min": None, "from_max": None}
 
@@ -149,6 +161,16 @@ def normalise(look):
         if not (0.0 <= float(fo["width"]) <= 1.0 and 0.0 <= float(fo["softness"]) <= 1.0
                 and -1.0 <= float(fo["strength"]) <= 1.0):
             raise ValueError(f"focus[{i}]: width and softness must be 0-1, strength -1 to 1")
+        fo["angle"], fo["lean"] = float(fo["angle"]) % 360.0, float(fo["lean"])
+        if not -90.0 <= fo["lean"] <= 90.0:
+            raise ValueError(f"focus[{i}].lean must be -90 to 90 degrees (0 = flat, ±90 = upright)")
+        fo["reach_w"], fo["reach_h"], fo["reach_edge"] = float(fo["reach_w"]), float(fo["reach_h"]), float(fo["reach_edge"])
+        if not (0.0 <= fo["reach_w"] <= 2.0 and 0.0 <= fo["reach_h"] <= 2.0 and 0.0 <= fo["reach_edge"] <= 1.0):
+            raise ValueError(f"focus[{i}]: reach_w and reach_h must be 0 (unlimited) to 2, reach_edge 0-1")
+        pv = fo["pivot"]
+        if pv is not None and not (isinstance(pv, (list, tuple)) and len(pv) == 2
+                                   and all(0.0 <= float(v) <= 1.0 for v in pv)):
+            raise ValueError(f"focus[{i}].pivot must be [fx, fy], fractions of the picture (0-1)")
     if lk["tilt"] is not None:
         lk["tilt"] = _merge({"normal": [0.0, 1.0, 0.0], "x0": 0.0, "y0": 0.0, "fit": False}, lk["tilt"], "tilt")
     return lk

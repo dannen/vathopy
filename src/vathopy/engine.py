@@ -15,7 +15,7 @@ import numpy as np
 
 from . import par as PAR
 from . import remap
-from .look import DEFAULT_BAND, _merge, normalise
+from .look import DEFAULT_AREA, DEFAULT_BAND, _merge, normalise
 from .ramp import Ramp, apply_lut
 
 # constants from the add-on (common.py / shading.py)
@@ -495,17 +495,49 @@ def focus_depth_at(depth, lk, x, y, r=2):
     return min(max((v - lo) / (hi - lo), 0.0), 1.0)
 
 
-def focus_bands(focus, lo, hi, s_eff, mid):
-    """The look's ``focus`` entries as add-on bands: flat (normal 0,0,1) at the relief height of
-    that depth, width and softness scaled from fractions of the window to metres."""
+def focus_bands(focus, lo, hi, s_eff, mid, pw, ph):
+    """The look's ``focus`` entries as add-on bands through the relief point at that depth: flat
+    (normal 0,0,1) unless leaned, the normal tipped by ``lean`` towards ``angle``. Width and
+    softness are scaled from fractions of the window to metres; ``pw`` x ``ph`` is the plane."""
     span = (hi - lo) * s_eff
     out = []
     for i, fo in enumerate(focus):
         z = (lo + float(fo["depth"]) * (hi - lo) - mid) * s_eff
+        fx, fy = fo.get("pivot") or (0.5, 0.5)
+        a, le = math.radians(float(fo.get("angle", 0.0))), math.radians(float(fo.get("lean", 0.0)))
+        normal = [math.sin(le) * math.cos(a), math.sin(le) * math.sin(a), math.cos(le)] if le else [0.0, 0.0, 1.0]
+        # The add-on measures a band's width along depth, so a leaned band's real thickness is width x cos(lean)
+        # (held from 85 degrees on): divide it back out, so Width stays the thickness however far it leans.
+        thick = 1.0 / max(math.cos(le), BAND_MIN_NZ)
         out.append(_merge(DEFAULT_BAND, {"id": f"focus{i + 1}", "name": f"focus{i + 1}", "enabled": bool(fo["enabled"]),
-                                         "strength": float(fo["strength"]), "normal": [0.0, 0.0, 1.0],
-                                         "center": [0.0, 0.0, z], "width": float(fo["width"]) * span,
-                                         "softness": float(fo["softness"]) * span}, "focus"))
+                                         "strength": float(fo["strength"]), "normal": normal,
+                                         "center": [(float(fx) - 0.5) * pw, (0.5 - float(fy)) * ph, z],
+                                         "width": float(fo["width"]) * span * thick,
+                                         "softness": float(fo["softness"]) * span * thick}, "focus"))
+    return out
+
+
+def focus_reach_areas(focus, lo, hi, s_eff, mid, pw, ph):
+    """For each focus with a reach: the add-on mask area (ellipsoid, Keep) that confines its band to
+    an oval around the pivot at the focus depth; None for unlimited focuses. Its depth radius spans
+    the band and its softness, so the band alone decides depth and the area only the place."""
+    span = (hi - lo) * s_eff
+    out = []
+    for i, fo in enumerate(focus):
+        rw, rh = float(fo.get("reach_w", 0.0)), float(fo.get("reach_h", 0.0))
+        if rw <= 0.0 and rh <= 0.0:
+            out.append(None)
+            continue
+        rw, rh = rw or rh * ph / pw, rh or rw * pw / ph                  # one given: a circle
+        z = (lo + float(fo["depth"]) * (hi - lo) - mid) * s_eff
+        fx, fy = fo.get("pivot") or (0.5, 0.5)
+        rz = max((float(fo["width"]) / 2 + float(fo["softness"])) * span * 4.0, 1e-3)
+        out.append(_merge(DEFAULT_AREA, {
+            "id": f"focusreach{i + 1}", "name": f"focusreach{i + 1}", "enabled": bool(fo["enabled"]),
+            "mode": "MASK", "shape": "ELLIPSOID",
+            "position": [(float(fx) - 0.5) * pw, (0.5 - float(fy)) * ph, z], "radius": [rw * pw, rh * ph, rz],
+            "mask": {"strength": 1.0, "side": "KEEP", "edge": float(fo.get("reach_edge", 0.5)),
+                     "target": f"BAND:focus{i + 1}"}}, "focus"))
     return out
 
 
@@ -518,15 +550,23 @@ def focus_weights(depth, look):
     f = remapped(np.ascontiguousarray(depth, dtype=np.float32), lk)
     lo, hi = _window(f, lk)
     s_eff, mid = max(float(lk["plane"]["scale"]), MIN_SCALE), float(lk["plane"]["midlevel"])
+    pw, ph = plane_dims(lk, f.shape)
+    px, py = plane_pixel_xy(pw, ph, *f.shape)
     out = []
-    for b in focus_bands(lk["focus"], lo, hi, s_eff, mid):
+    reaches = focus_reach_areas(lk["focus"], lo, hi, s_eff, mid, pw, ph)
+    for b, ra in zip(focus_bands(lk["focus"], lo, hi, s_eff, mid, pw, ph), reaches):
         if not b["enabled"]:
             out.append(None)
             continue
-        vals = band_values(b, s_eff, mid)                # flat band: no x/y gradient
-        v = np.float64(vals["A"]) * f.astype(np.float64) - np.float64(vals["O"])
+        vals = band_values(b, s_eff, mid)
+        gx, gy, _ = vals["Grad"]
+        v = (np.float64(gx) * px[None, :].astype(np.float64) + np.float64(gy) * py[:, None].astype(np.float64)
+             + np.float64(vals["A"]) * f.astype(np.float64) - np.float64(vals["O"]))
         u = band_u_slice(v, (vals["M1"], vals["M2"], vals["M3"], vals["M4"]), vals["T"]).astype(np.float32)
-        out.append(apply_lut(u, band_lut(b["interpolation"]), True))
+        wt = apply_lut(u, band_lut(b["interpolation"]), True)
+        if ra is not None:                               # Keep mask at strength 1: band x area weight
+            wt = (wt * area_weight(area_params(ra, px, py, pw, ph, mid, s_eff), f)).astype(np.float32)
+        out.append(wt)
     return out
 
 
@@ -603,8 +643,11 @@ def render(depth, look):
     if lk["smooth_depth"] > 0:
         depth = smooth_depth(depth, lk["smooth_depth"])
     if any(fo["at"] is not None for fo in lk["focus"]):
-        lk = dict(lk, focus=[dict(fo, depth=focus_depth_at(depth, lk, *fo["at"]), at=None) if fo["at"] is not None
-                             else fo for fo in lk["focus"]])
+        h_, w_ = depth.shape
+        lk = dict(lk, focus=[dict(fo, depth=focus_depth_at(depth, lk, *fo["at"]), at=None,
+                                  pivot=[min(max((fo["at"][0] + 0.5) / w_, 0.0), 1.0),
+                                         min(max((fo["at"][1] + 0.5) / h_, 0.0), 1.0)])
+                             if fo["at"] is not None else fo for fo in lk["focus"]])
     ss = lk["supersample"]
     if ss <= 1:
         out, info = _render(depth, lk)
@@ -636,7 +679,9 @@ def _render(depth, lk):
     f = remapped(depth, lk)
     lo, hi = _window(f, lk)
     if lk["focus"]:
-        lk = dict(lk, bands=lk["bands"] + focus_bands(lk["focus"], lo, hi, s_eff, mid))
+        reaches = [a for a in focus_reach_areas(lk["focus"], lo, hi, s_eff, mid, pw, ph) if a is not None]
+        lk = dict(lk, bands=lk["bands"] + focus_bands(lk["focus"], lo, hi, s_eff, mid, pw, ph),
+                  areas=lk["areas"] + reaches)
     tilt = resolve_tilt(lk["tilt"], lo, hi, s_eff, mid, pw, ph)
     px, py = plane_pixel_xy(pw, ph, h_, w_)
 

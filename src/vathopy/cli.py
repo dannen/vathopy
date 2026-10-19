@@ -58,20 +58,32 @@ def quarter_steps_or_auto(text):
 
 def focus_spec(text):
     """argparse type: DEPTH[:WIDTH[:SOFTNESS[:STRENGTH]]] (fractions of the depth range, 0 = far,
-    1 = near; strength -1 to 1) or @X,Y[:...] (the depth under that pixel, top-down)."""
+    1 = near; strength -1 to 1) or @X,Y[:...] (the depth under that pixel, top-down). Any field can
+    also be given by name, in any order after the first, e.g. 0.6:angle=135:lean=60:width=0.05."""
     head, *rest = text.split(":")
+    names = ("width", "softness", "strength", "angle", "lean", "reach_w", "reach_h", "reach_edge", "reach")
     try:
         fo = {"at": [float(v) for v in head[1:].split(",")]} if head.startswith("@") else {"depth": float(head)}
         if "at" in fo and len(fo["at"]) != 2:
             raise ValueError
-        for key, v in zip(("width", "softness", "strength"), rest):
-            fo[key] = float(v)
-        if len(rest) > 3:
+        positional = [t for t in rest if "=" not in t]
+        if len(positional) > 3:
             raise ValueError
+        fo.update(zip(names, (float(v) for v in positional)))
+        for t in rest:
+            if "=" in t:
+                k, v = t.split("=", 1)
+                if k not in names:
+                    raise ValueError
+                fo[k] = float(v)
+        if "reach" in fo:                                    # reach= : the same fraction both ways
+            r = fo.pop("reach")
+            fo.setdefault("reach_w", r); fo.setdefault("reach_h", r)
         LOOK.normalise({"focus": [fo]})
     except ValueError:
         raise argparse.ArgumentTypeError(
-            "must be DEPTH[:WIDTH[:SOFTNESS[:STRENGTH]]] (e.g. 0.8:0.1:0.05:0.6) or @X,Y[:...] (a pixel)") from None
+            "must be DEPTH[:WIDTH[:SOFTNESS[:STRENGTH]]] (e.g. 0.8:0.1:0.05:0.6) or @X,Y[:...] (a pixel); "
+            "fields can be named, e.g. @410,480:angle=135:lean=60") from None
     return fo
 
 
@@ -243,7 +255,12 @@ def main(argv=None):
                    help="creative focus: lift one depth to white. DEPTH[:WIDTH[:SOFTNESS[:STRENGTH]]] as "
                         "fractions of the depth range (0 = far, 1 = near; default width 0.1, softness 0.05; "
                         "strength -1 to 1, default --focus-strength), or @X,Y[:...] for the depth under "
-                        "that pixel. Repeat for several distances. With --base BLACK: a white subject on black")
+                        "that pixel. Fields can be named (width=, softness=, strength=, angle=, lean=, "
+                        "reach_w=, reach_h=, reach=, reach_edge=); reach confines the focus to an oval "
+                        "around the point (half-size as a fraction of the picture), isolating one subject; "
+                        "lean (-90 to 90 degrees) tilts the band so it cuts across the scene at an angle, angle "
+                        "(degrees, counter-clockwise from the right) turns it. Repeat for several distances. "
+                        "With --base BLACK: a white subject on black")
     r.add_argument("--focus-strength", type=float, default=1.0, metavar="K",
                    help="-1 to 1 (default 1) for every --focus without its own STRENGTH: 1 lifts the "
                         "focus to white, -1 sinks it to black (use with --base WHITE for black on white)")

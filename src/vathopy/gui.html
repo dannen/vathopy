@@ -47,7 +47,8 @@
   main.actual { align-items: flex-start; justify-content: flex-start; }
   main.actual #view { max-width: none; max-height: none; cursor: zoom-out; }
   main #view.picking { cursor: crosshair; }
-  #pick { display: inline-flex; align-items: center; gap: 7px; }
+  #pick, #download { display: inline-flex; align-items: center; gap: 7px; }
+  #download .icon { width: 18px; height: 18px; stroke: #fff; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; fill: none; flex: none; }
   #pick .plus { width: 20px; height: 20px; stroke: #fff; stroke-width: 3.2; stroke-linecap: round; flex: none; }
   button.ghost[aria-pressed=true] { border-color: var(--accent); color: var(--focus); }
   .band { border: 1px solid var(--line); border-radius: 8px; padding: 2px 8px 8px; margin-top: 8px; }
@@ -55,6 +56,10 @@
   .band .head label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
   .band.off .row { opacity: .45; }
   .band.folded .row { display: none; }
+  .band .head label.lock { font-size: 11.5px; margin-left: auto; margin-right: 8px; }
+  .band.locked .row { opacity: .55; }
+  .band.locked .row input[type=range] { cursor: not-allowed; }
+  .band .head button.remove:disabled { opacity: .3; cursor: not-allowed; }
   .band.folded { padding-bottom: 2px; }
   .band .head .fold { font-variant-numeric: tabular-nums; }
   .band { border-width: 2px; }
@@ -123,6 +128,8 @@
     <select id="looks" aria-label="Load a saved look"><option value="">Load a saved look…</option></select>
     <div class="inline"><input type="text" id="name" placeholder="name for this look" aria-label="Look name">
       <button class="act" id="save">Save</button></div>
+    <div class="inline"><button class="ghost" id="download" title="Download the full-quality result as a 16-bit PNG">
+      <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 16.5h12"/></svg>Download PNG</button></div>
     <div class="note" id="saved"></div>
   </aside>
   <main id="stage"><span id="empty">Loading…</span><img id="view" alt="" hidden></main>
@@ -162,14 +169,28 @@ function setView(v, render = true) {
   if (changed && render) full();
 }
 const bandSliders = [["depth", "Depth", 0, 1, 0.005], ["width", "Width", 0, 0.5, 0.005], ["softness", "Softness", 0, 0.3, 0.005],
-                     ["strength", "Strength", 0, 1, 0.05]];
+                     ["strength", "Strength", 0, 1, 0.05], ["reach_w", "Reach width", 0, 1, 0.01],
+                     ["reach_h", "Reach height", 0, 1, 0.01], ["reach_edge", "Reach edge", 0, 1, 0.05],
+                     ["lean", "Lean (°)", -90, 90, 1], ["angle", "Angle (°)", -90, 90, 5]];
+const BAND_DEFAULTS = { strength: 1, lean: 0, angle: 0, reach_w: 0, reach_h: 0, reach_edge: 0.5 };   // older looks
+const bandText = (key, v) => (key === "strength" && +v === 0 ? "0 · no effect"
+  : key === "strength" || key === "reach_edge" ? (+v).toFixed(2)
+  : key === "lean" || key === "angle" ? `${+v}°` : (key === "reach_w" || key === "reach_h") && +v === 0 ? "off" : (+v).toFixed(3));
+const BAND_TIPS = {
+  reach_w: "Confine this focus to an oval around the point you picked: its half-width, as a fraction of the picture (off = everything at that depth)",
+  reach_h: "The oval's half-height, as a fraction of the picture (off with width set = a circle)",
+  reach_edge: "How soft the oval's edge is: 0 = sharp, 1 = a glow",
+  lean: "Tilt the band away from flat, so it cuts across the scene (a shaft of light) through the point you picked; 0 = flat, negative leans the other way, ±90° = upright, a straight stripe that ignores depth",
+  angle: "Turns a leaned band around the point you picked: 0° = tips left/right, ±90° = tips up/down; Lean's sign picks which way",
+};
 function buildBands() {
   const box = $("bands");
   box.innerHTML = "";
   bands.forEach((b, i) => {
     const div = document.createElement("div");
     div.className = "band";
-    div.innerHTML = `<div class="head"><label><input type="checkbox"> <span class="dot"></span>Focus ${i + 1}</label>`
+    div.innerHTML = `<div class="head"><label><input type="checkbox" class="on"> <span class="dot"></span>Focus ${i + 1}</label>`
+      + `<label class="lock" title="Lock this focus's sliders so they can't be changed by accident"><input type="checkbox" class="lockbox"> Lock</label>`
       + `<span><button type="button" class="fold"></button><button type="button" class="remove" title="Remove">✕</button></span></div>`;
     b.open ??= true;
     const fold = div.querySelector(".fold");
@@ -186,12 +207,21 @@ function buildBands() {
     div.querySelector(".dot").title = "Its colour in the Highlights view";
     div.style.borderColor = colour;
     div.style.background = colour + "1f";                        // the same colour, faint
-    const on = div.querySelector("input[type=checkbox]");
+    const on = div.querySelector("input.on");
     b.enabled ??= true;
     on.checked = b.enabled;
     on.setAttribute("aria-label", `Focus ${i + 1} on`);
     div.classList.toggle("off", !b.enabled);
     on.onchange = () => { b.enabled = on.checked; div.classList.toggle("off", !b.enabled); full(); };
+    const lock = div.querySelector("input.lockbox");
+    b.locked ??= false;
+    lock.checked = b.locked;
+    lock.setAttribute("aria-label", `Lock focus ${i + 1}`);
+    const applyLock = () => {                       // sliders and remove; on/off and folding stay usable
+      for (const el of div.querySelectorAll("input[type=range], button.remove")) el.disabled = b.locked;
+      div.classList.toggle("locked", b.locked);
+    };
+    lock.onchange = () => { b.locked = lock.checked; applyLock(); };
     div.querySelector(".remove").onclick = () => { bands.splice(i, 1); buildBands(); setView(view, false); full(); };
     for (const [key, label, min, max, step] of bandSliders) {
       const row = document.createElement("div");
@@ -199,12 +229,13 @@ function buildBands() {
       row.innerHTML = `<label></label><output></output><input type="range" min="${min}" max="${max}" step="${step}">`;
       row.querySelector("label").textContent = label;
       const input = row.querySelector("input"), out = row.querySelector("output");
-      b[key] ??= 1;                                   // strength, for looks saved before it existed
-      input.value = b[key]; out.textContent = (+b[key]).toFixed(key === "strength" ? 2 : 3);
+      b[key] ??= BAND_DEFAULTS[key];
+      input.value = b[key]; out.textContent = bandText(key, b[key]);
+      if (BAND_TIPS[key]) { input.title = BAND_TIPS[key]; row.querySelector("label").title = BAND_TIPS[key]; }
       input.setAttribute("aria-label", `Focus ${i + 1} ${label}`);
       input.style.accentColor = colour; out.style.color = colour;
       input.addEventListener("input", () => {
-        b[key] = +input.value; out.textContent = (+input.value).toFixed(key === "strength" ? 2 : 3);
+        b[key] = +input.value; out.textContent = bandText(key, input.value);
         if (key === "depth") showFold();
         if (key !== "strength") setView("highlight", false);   // where it lands; strength only shows in the result
         preview();
@@ -212,6 +243,7 @@ function buildBands() {
       input.addEventListener("change", full);
       div.appendChild(row);
     }
+    applyLock();
     box.appendChild(div);
   });
   $("focus_note").textContent = bands.length ? "" : "then click the picture";
@@ -320,7 +352,8 @@ $("view").addEventListener("click", async (ev) => {
     const j = await getJSON("/api/depth_at", { map: $("map").value, settings: settings(), x, y });
     if (bands.length >= MAX_FOCUS) { $("focus_note").textContent = `${MAX_FOCUS} is the most: remove one first`; return; }
     if (bands.length >= 3) for (const o of bands) o.open = false;   // keep the list short: only the new one open
-    bands.push({ depth: +j.depth.toFixed(3), width: 0.08, softness: 0.04, strength: 1, enabled: true, open: true });
+    bands.push({ depth: +j.depth.toFixed(3), width: 0.08, softness: 0.04, strength: 1, lean: 0, angle: 0,
+                 x: +x.toFixed(4), y: +y.toFixed(4), enabled: true, open: true });
     if ($("focus_style").value === "off") $("focus_style").value = "white_on_black";
     buildBands(); setView("highlight", false); full();
   } catch (e) { $("focus_note").textContent = "pick failed: " + e.message; }
@@ -379,6 +412,23 @@ $("save").onclick = async () => {
     }
     await loadLooks();
   } catch (e) { $("saved").textContent = "save failed: " + e.message; }
+};
+
+$("download").onclick = async () => {
+  const btn = $("download");
+  btn.disabled = true; $("saved").textContent = "rendering the PNG…";
+  try {
+    const r = await fetch("/api/export", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ map: $("map").value, settings: settings(), name: $("name").value }) });
+    if (!r.ok) throw new Error((await r.json()).error);
+    const name = (r.headers.get("Content-Disposition") || "").match(/filename="([^"]+)"/)?.[1] || "vathopy.png";
+    const url = URL.createObjectURL(await r.blob());
+    const a = document.createElement("a");
+    a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    $("saved").textContent = "Downloaded " + name;
+  } catch (e) { $("saved").textContent = "download failed: " + e.message; }
+  finally { btn.disabled = false; }
 };
 
 init().catch((e) => { $("empty").textContent = "error: " + e.message; });

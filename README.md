@@ -51,22 +51,40 @@ vathopy render depth.exr --base BLACK --focus @410,480 -o out/            # the 
 vathopy render depth.exr --preset MIST --focus @410,480 -o out/           # lifted out of a misty gradient
 vathopy render depth.exr --base BLACK --focus @410,480 --focus 0.9:0.1:0.05:0.6 -o out/   # several distances, the second at 60%
 vathopy render depth.exr --base WHITE --focus 0.8:0.15 --focus-strength -1 -o out/   # black on white
+vathopy render depth.exr --base BLACK --focus @410,480:reach_w=0.16:reach_h=0.5 -o out/   # one subject, isolated
+vathopy render depth.exr --preset MIST --focus 0.6:angle=135:lean=60 -o out/   # a leaned band: a shaft of light
 ```
 
-![Focus: white on black, out of mist, two distances, black on white](examples/twilight/focus.jpg)
+The practice's three kinds of focus: a **gradient** across the whole depth (`--preset MIST`, no focus), **one
+subject isolated** (`--base BLACK` and a focus with a reach), and **several distances at once** (repeat `--focus`).
+
+![Focus: white on black, out of mist, two distances, one subject isolated, a leaned shaft](examples/twilight/focus.jpg)
 
 - **`--focus DEPTH[:WIDTH[:SOFTNESS[:STRENGTH]]]`**: DEPTH is a fraction of the depth range (0 = far, 1 = near),
   WIDTH the range that's fully in focus and SOFTNESS the fade on each side, as fractions too (default 0.1 and
   0.05). STRENGTH (-1 to 1) sets that focus alone. `@X,Y` instead of DEPTH takes the depth under that pixel
-  (top-down coordinates of the depth map). Repeat `--focus` for several distances.
+  (top-down coordinates of the depth map). Repeat `--focus` for several distances. Any field can also be
+  named, in any order: `width=`, `softness=`, `strength=`, plus:
+  - **`reach_w=` / `reach_h=`** (or `reach=` for both): confine the focus to an oval around the picked point,
+    its half-width and half-height as fractions of the picture (0 = unlimited). Only that subject lights up,
+    with a pool of light where the oval meets the ground, instead of everything at that depth.
+    **`reach_edge=`** (0–1, default 0.5) softens the oval's edge towards a glow.
+  - **`lean=`** (−90 to 90°, 0 = flat) tilts the band away from flat, so it cuts across the scene at an angle,
+    like a shaft of light across a floor, through the picked point; negative leans tilt it the other way, and at
+    ±90° it stands upright and ignores depth, a straight stripe across the picture. **`angle=`** (degrees,
+    0 = right, 90 = up) turns it (any value; the GUI's slider runs −90 to 90°, since a negative lean covers the other
+    half of the circle).
 - **`--base`** sets what the focus sits on: `RAMP` (default, the palette), `BLACK` or `WHITE`.
 - **`--focus-strength K`** (-1 to 1, default 1) for every focus without its own STRENGTH: 1 lifts to white, -1
   sinks to black, in between is partial.
 - **`MIST`** is a ramp for the third kind of focus: near dark, distance pale like mist.
 
-Each focus is the add-on's own Focus & Shape Band, laid flat in the relief at that depth, so it renders
-exactly like one placed in Blender. Look key: `"focus": [{"depth": 0.55, "width": 0.04, "softness": 0.03}]`
-(or `"at": [x, y]`), plus `"strength"`.
+Each focus is the add-on's own Focus & Shape Band at that depth (flat, or leaned), and a reach is the
+add-on's mask area (an ellipsoid set to Keep) aimed at that band, so it renders exactly like the same setup
+placed in Blender. Look key: `"focus": [{"depth": 0.55, "width": 0.04, "softness": 0.03}]` (or `"at": [x, y]`),
+plus optional `"strength"`, `"enabled"`, `"lean"`, `"angle"`, `"pivot": [fx, fy]` (the point a leaned band or a
+reach is centred on, as fractions of the picture; `at` sets it), `"reach_w"`, `"reach_h"`, `"reach_edge"` and
+`"locked"` (the GUI's lock; no effect on the picture).
 
 ### Cycles and contour lines
 
@@ -116,17 +134,23 @@ A small local web app (Python standard library server + one HTML page, no extra 
 - **Palette:** swatches of all presets plus the black/white fringe ramp, with **Invert** (mirror the ramp) and **Equalize**.
 - **Sliders:** cycles and contour lines (0 = off, 0.25 steps), line darkness and width, smoothing and anti-aliasing.
 - **Focus:** choose a style (white on black, black on white, or lift/sink over the palette), press **Pick a depth**
-  and click the picture: that distance becomes a focus with depth, width, softness and strength sliders, so a
-  second distance can come forward less than the subject. Shift-click to keep picking, up to 16. Each
-  focus has a checkbox to switch it off and on without losing its settings, and its depth value folds
-  its sliders away to keep a long list short.
+  and click the picture: that distance becomes a focus with depth, width, softness and strength sliders (so a
+  second distance can come forward less than the subject; at 0 it reads "no effect"), reach width/height/edge to
+  isolate it, and lean and angle to tilt it (both centred on 0 and running −90 to 90°: the sign of lean picks
+  which way it tips, angle turns it). Shift-click to keep picking, up to 16. Each focus has a checkbox to switch
+  it off and on without losing its settings, a **Lock** checkbox that disables its sliders and its remove button
+  so they can't be changed by accident, and its depth value folds its sliders away to keep a long list short.
+  Choosing another depth map clears the focuses, since their depths belong to the old map.
 - **Highlights / Result:** while you pick and adjust, the picture shows the look without its focus, greyed,
-  with each focus's region tinted in its own colour (the dot by its sliders), so several focuses and the rest
-  of the picture stay visible. The tabs at the top right (or the T key) switch to the result and back.
+  with each focus's region tinted in its own colour (its panel's colour), fainter the lower its strength, so
+  several focuses and the rest of the picture stay visible. The tabs at the top right (or the T key) switch to the result and back.
 - **Speed:** while a slider moves, a fast preview renders (no anti-aliasing, at most `--preview-size` px, typically 50–100 ms); on release, the full-quality render (about 0.2–0.7 s at ~1200 px). Smoothing is computed once per radius. Click the picture for 100% view.
 - **Auto (probe):** sets smoothing and the cycle or contour count to the most the map carries cleanly (see Probing below).
 - **Looks:** **Save** writes the full-quality 16-bit PNG to `--favourites` (default `~/Pictures/vathography/favorites`, never overwriting) and the look to `looks/<name>.json`; saved looks load back into the controls, and `vathopy render -l looks/<name>.json` reproduces the PNG exactly.
 
+- **Download PNG:** downloads the full-quality result as a 16-bit PNG straight to the browser (named after the
+  depth map and the look name, if one is typed), without saving anything on the server. It's always the result,
+  even while the Highlights view is showing.
 - **Downloads:** after a save, the page links the PNG and the look, so they can be downloaded when the GUI runs on another machine (such as a RunPod pod).
 - **Listed maps:** depth EXRs only; files with `normals`, `albedo` or `bench_` in the name are left out.
 

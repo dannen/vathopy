@@ -104,7 +104,12 @@ def look_from_settings(s, preview=False):
         lk["base"], sign = FOCUS_STYLES[style]           # each focus's strength slider is 0-1; the style sets the sign
         lk["focus"] = [{"depth": float(fo["depth"]), "width": float(fo["width"]), "softness": float(fo["softness"]),
                         "strength": sign * min(max(float(fo.get("strength", 1.0)), 0.0), 1.0),
-                        "enabled": bool(fo.get("enabled", True))} for fo in s["focus"][:MAX_FOCUS]]
+                        "enabled": bool(fo.get("enabled", True)),
+                        "angle": float(fo.get("angle", 0.0)), "lean": float(fo.get("lean", 0.0)),
+                        "reach_w": float(fo.get("reach_w", 0.0)), "reach_h": float(fo.get("reach_h", 0.0)),
+                        "reach_edge": float(fo.get("reach_edge", 0.5)), "locked": bool(fo.get("locked", False)),
+                        "pivot": [float(fo["x"]), float(fo["y"])] if "x" in fo and "y" in fo else None}
+                       for fo in s["focus"][:MAX_FOCUS]]
     return LOOK.normalise(lk)
 
 
@@ -119,7 +124,8 @@ def highlight(depth, lk):
     for i, w in enumerate(focus_weights(depth, lk)):
         if w is None:
             continue                                     # switched off: no tint (it keeps its colour slot)
-        a = HIGHLIGHT_ALPHA * np.clip(w[..., None], 0.0, 1.0)
+        k = min(abs(float(lk["focus"][i]["strength"])), 1.0)
+        a = HIGHLIGHT_ALPHA * (0.2 + 0.8 * k) * np.clip(w[..., None], 0.0, 1.0)   # strength 0: only a faint tint
         rgb = rgb * (1.0 - a) + (np.asarray(FOCUS_COLOURS[i % len(FOCUS_COLOURS)], np.float32) / 255.0) * a
     return np.round(rgb[::-1] * 255).astype(np.uint8)
 
@@ -141,6 +147,17 @@ def settings_from_look(lk):
             **_focus_settings(lk)}
 
 
+def _slider_lean_angle(lean, angle):
+    """Any lean/angle as the page's sliders show it: angle -90..90, with the lean's sign giving the
+    other half of the circle (lean L at angle A is the same band as -L at A + 180)."""
+    lean, angle = float(lean), (float(angle) + 180.0) % 360.0 - 180.0      # -180 .. 180
+    if angle > 90.0:
+        lean, angle = -lean, angle - 180.0
+    elif angle < -90.0:
+        lean, angle = -lean, angle + 180.0
+    return lean, angle
+
+
 def _focus_settings(lk):
     focus = [fo for fo in lk.get("focus") or [] if fo.get("depth") is not None]
     if not focus:
@@ -150,7 +167,15 @@ def _focus_settings(lk):
     return {"focus_style": style, "focus": [{"depth": fo["depth"], "width": fo.get("width", 0.1),
                                              "softness": fo.get("softness", 0.05),
                                              "strength": abs(float(fo.get("strength", 1.0))),
-                                             "enabled": bool(fo.get("enabled", True))} for fo in focus]}
+                                             "enabled": bool(fo.get("enabled", True)),
+                                             **dict(zip(("lean", "angle"), _slider_lean_angle(fo.get("lean", 0.0),
+                                                                                              fo.get("angle", 0.0)))),
+                                             "reach_w": float(fo.get("reach_w", 0.0)),
+                                             "reach_h": float(fo.get("reach_h", 0.0)),
+                                             "reach_edge": float(fo.get("reach_edge", 0.5)),
+                                             "locked": bool(fo.get("locked", False)),
+                                             **({"x": fo["pivot"][0], "y": fo["pivot"][1]} if fo.get("pivot") else {})}
+                                            for fo in focus]}
 
 
 class Maps:
@@ -284,6 +309,8 @@ def make_handler(maps, favourites, preview_size, auth=None):
                     h, w = d.shape
                     x, y = float(req["x"]), float(req["y"])           # fractions of the picture, top-down
                     return self._send(200, {"depth": focus_depth_at(d, look_from_settings(s), x * w, y * h)})
+                if path == "/api/export":
+                    return self._export(req)
                 if path == "/api/save":
                     return self._save(req)
                 if path == "/api/look":
@@ -314,6 +341,19 @@ def make_handler(maps, favourites, preview_size, auth=None):
             ok, png = cv2.imencode(".png", img[:, :, ::-1])
             return self._send(200, png.tobytes(), "image/png",
                               {"X-Render-Ms": f"{ms:.0f}", "X-Size": f"{d.shape[1]}x{d.shape[0]}"})
+
+        def _export(self, req):
+            """The full-quality result as a 16-bit PNG download (nothing is written on the server)."""
+            import cv2
+            s = req.get("settings", {})
+            d = maps.depth(req["map"], float(s.get("smooth", 0) or 0))
+            out, _ = render(d, look_from_settings(s))
+            codes = np.round(VIO.srgb_oetf(out[::-1, :, :3]) * 65535).astype(np.uint16)
+            ok, png = cv2.imencode(".png", np.ascontiguousarray(codes[:, :, ::-1]))
+            if not ok:
+                raise ValueError("could not encode the PNG")
+            name = (_safe_name(Path(req["map"]).stem) or "depth") + "_" + (_safe_name(req.get("name")) or "vathopy") + ".png"
+            return self._send(200, png.tobytes(), "image/png", {"Content-Disposition": f'attachment; filename="{name}"'})
 
         def _file(self):
             """A saved PNG or look from the favourites folder, as a download."""
