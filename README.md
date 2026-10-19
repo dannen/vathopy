@@ -190,6 +190,7 @@ Both apply to everything (contours, cycles, bands, area edges), are look keys (`
 ```bash
 vathopy gui                     # then open http://127.0.0.1:8770/
 vathopy gui --depth-dir DIR --favourites DIR --port 8770
+vathopy --palettes DIR gui      # your palettes from another folder (see "Your own palettes")
 ```
 
 A small local web app (Python standard library server + one HTML page, no extra dependencies):
@@ -199,7 +200,7 @@ A small local web app (Python standard library server + one HTML page, no extra 
 - **Depth map:** picks from the `.exr` files in `--depth-dir` (default `~/Pictures/vathography/depth`, raw Marigold output); each is prepped (`--kind near-bright`) once and kept in memory.
 - **Sections:** click a heading's ▾ (Palette, Shape, Focus, Quality, Looks) to collapse it; the browser
   remembers which are collapsed. Each focus panel folds the same way from the ▾ on its left.
-- **Palette:** swatches of all presets plus the black/white fringe ramp, with **Invert** (mirror the ramp) and **Equalize**.
+- **Palette:** swatches of all presets plus the black/white fringe ramp, then your own palettes (marked ★, re-read from the palette folder on every page load), with **Invert** (mirror the ramp) and **Equalize**.
 - **Sliders:** cycles and contour lines (0 = off, 0.25 steps), line darkness and width, smoothing and anti-aliasing.
 - **Focus:** choose a style (white on black, black on white, or lift/sink over the palette), press **Pick a depth**
   and click the picture: that distance becomes a focus with depth, width, softness and strength sliders (so a
