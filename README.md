@@ -41,6 +41,72 @@ vathopy render shots/*_depth.exr -l my_look.json --preset VERMILION_INK_CYAN -o 
 vathopy presets    # 41 ramp presets: the add-on's 19, 8 complementary palettes, 13 colour-to-black, MIST
 ```
 
+### Your own palettes
+
+The 41 built-in palettes live in `src/vathopy/presets.json`. To add your own, put files in a palette folder:
+`~/Pictures/vathography/palettes` by default, or `$VATHOPY_PALETTES`, or `vathopy --palettes DIR ...` (before
+the command). Each file becomes a palette named after it, upper-cased (`sunset glow.png` → `SUNSET_GLOW`),
+listed after the built-ins in `vathopy presets` (marked `[yours: …]`) and in the GUI (marked ★). The GUI re-reads
+the folder whenever the page loads, so a new file shows up on a reload.
+
+```bash
+mkdir -p ~/Pictures/vathography/palettes
+cp examples/palettes/* ~/Pictures/vathography/palettes/     # DUSK (an image) and FOG_GREEN (JSON)
+vathopy presets | tail -2
+vathopy render depth.exr --preset DUSK -o out/
+```
+
+Three ways to make one:
+
+- **An image** (`.png` or `.jpg`): the easiest. Paint or crop a strip and save it; vathopy
+  reads it along its long side, **left = near, right = far** (top = near for a tall strip), the way the GUI's
+  swatches run. It reads the middle half of the strip, so a border or a label at the edge doesn't count.
+  - **Colour blocks** (like `examples/palettes/dusk.png`: five flat blocks): each block becomes one colour stop,
+    and the ramp blends between them.
+  - **A smooth gradient** (a screenshot of one, a sky, a photo's colour bar): it's sampled into at most 32
+    stops (Blender's limit), so it keeps its shape.
+- **JSON**, the built-in format, for exact control: positions run from 0 = far to 1 = near, colours are sRGB hex,
+  and `interpolation` is `LINEAR`, `EASE`, `CONSTANT` (hard bands), `B_SPLINE` or `CARDINAL`:
+
+  ```json
+  {"name": "Fog green", "desc": "Near deep green, far pale fog", "interpolation": "EASE",
+   "stops": [[0.0, "#E9EEE8"], [0.45, "#9FB3A2"], [1.0, "#16302A"]]}
+  ```
+
+  One file can also hold several, keyed by name: `{"warm": {...}, "cold": {...}}` → `WARM` and `COLD`.
+- **A GIMP palette** (`.gpl`, which many palette sites and apps export): its colours are spread evenly, the first
+  one near and the last one far.
+
+A file whose name matches a built-in palette is skipped with a warning (rename it), as is a file vathopy
+can't read; other file types in the folder are ignored. Looks saved with your palette refer to it by name, so
+the palette has to be in the folder wherever the look is rendered again.
+
+**Safety.** Palette files are only ever read as data: JSON is parsed, never evaluated; `.gpl` lines are split
+into numbers; images are decoded to pixels. Nothing in them is run, and the GUI shows their names as plain
+text, never as HTML. Data can still be hostile, so every file is checked first and rejected, with the reason,
+unless it passes:
+
+- only regular files in the folder itself (symlinks aren't followed, so a link can't pull in a file from elsewhere);
+- at most 200 palette files; images up to 20 MB, `.json`/`.gpl` up to 256 KB;
+- images only as PNG or JPEG, with the size read from the file header **before** decoding and capped at
+  25 megapixels, so a tiny file claiming a huge picture (a decompression bomb) is refused;
+- 1–32 stops, positions finite numbers from 0 to 1, colours exactly `#RRGGBB`, a known interpolation;
+- names and descriptions stripped of control characters (terminal escape codes, hidden text-direction marks)
+  and shortened; keys reduced to `A–Z`, `0–9` and `_`; built-in palettes are never replaced.
+
+Test a folder before using it (it exits with an error if anything is rejected):
+
+```bash
+vathopy check-palettes ~/Downloads/new-palettes
+vathopy check-palettes            # the palette folder itself
+```
+
+```
+OK        dusk.png        DUSK: 5 stop(s), LINEAR
+REJECTED  huge.png        60000 x 60000 pixels; at most 25 megapixels
+REJECTED  link.json       not a regular file (symlinks aren't followed)
+```
+
 ### Creative focus
 
 Pick the distances that become the subject. Each `--focus` lifts one depth to white (or sinks it to black):
@@ -131,6 +197,8 @@ A small local web app (Python standard library server + one HTML page, no extra 
 ![The vathopy GUI: palette swatches, sliders and the rendered picture](examples/webui-example.jpg)
 
 - **Depth map:** picks from the `.exr` files in `--depth-dir` (default `~/Pictures/vathography/depth`, raw Marigold output); each is prepped (`--kind near-bright`) once and kept in memory.
+- **Sections:** click a heading's ▾ (Palette, Shape, Focus, Quality, Looks) to collapse it; the browser
+  remembers which are collapsed. Each focus panel folds the same way from the ▾ on its left.
 - **Palette:** swatches of all presets plus the black/white fringe ramp, with **Invert** (mirror the ramp) and **Equalize**.
 - **Sliders:** cycles and contour lines (0 = off, 0.25 steps), line darkness and width, smoothing and anti-aliasing.
 - **Focus:** choose a style (white on black, black on white, or lift/sink over the palette), press **Pick a depth**
@@ -255,6 +323,13 @@ add-on's template file.
 * Arrays are bottom-up in memory (Blender's order) so plane coordinates match the add-on.
   `load_depth`/`write_*` handle the flip, and files on disk are normal.
 * Prefer float EXR or 16-bit PNG depth maps; 8-bit maps show stepped bands (the CLI warns).
+* Depth maps are checked before they're decoded, since a small compressed file can declare a huge picture and
+  the decoders are C/C++ code: an EXR's header is read first (one part, flat, at most 64 channels), PNG and
+  JPEG sizes come from their headers, and every format is capped at 100 megapixels and 32768 px a side
+  (OpenCV's own cap is set to match, which covers TIFF). `.npy` files load with pickling off, so they can't run
+  code, and must hold numbers. The GUI lists regular files only, not symlinks. Keep the `OpenEXR` package up to
+  date: it's the parser that sees the file.
+* EXRs written by ComfyUI carry its whole workflow in their metadata, including the source photo's file name.
 * `prep` clips at the 0.1/99.9 percentiles so a few stray pixels can't flatten the ramp, and
   fills NaN/inf as farthest. The add-on itself uses the raw min/max and would fail on NaN.
 

@@ -56,6 +56,11 @@
   .band .head label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
   .band.off .row { opacity: .45; }
   .band.folded .row { display: none; }
+  h2 button.sec { display: flex; align-items: center; gap: 6px; width: 100%; background: none; border: 0; padding: 2px 0;
+    color: inherit; font: inherit; text-transform: inherit; letter-spacing: inherit; cursor: pointer; text-align: left; }
+  h2 button.sec:hover, .band .head button.tri:hover { color: var(--text); }
+  h2 .tri, .band .head button.tri { display: inline-block; width: 12px; font-size: 11px; color: var(--dim); }
+  .band .head button.tri { background: none; border: 0; padding: 0 4px 0 0; cursor: pointer; font-family: inherit; }
   .band .head label.lock { font-size: 11.5px; margin-left: auto; margin-right: 8px; }
   .band.locked .row { opacity: .55; }
   .band.locked .row input[type=range] { cursor: not-allowed; }
@@ -189,18 +194,22 @@ function buildBands() {
   bands.forEach((b, i) => {
     const div = document.createElement("div");
     div.className = "band";
-    div.innerHTML = `<div class="head"><label><input type="checkbox" class="on"> <span class="dot"></span>Focus ${i + 1}</label>`
+    div.innerHTML = `<div class="head"><button type="button" class="tri"></button>`
+      + `<label><input type="checkbox" class="on"> <span class="dot"></span>Focus ${i + 1}</label>`
       + `<label class="lock" title="Lock this focus's sliders so they can't be changed by accident"><input type="checkbox" class="lockbox"> Lock</label>`
       + `<span><button type="button" class="fold"></button><button type="button" class="remove" title="Remove">✕</button></span></div>`;
     b.open ??= true;
-    const fold = div.querySelector(".fold");
+    const fold = div.querySelector(".fold"), tri = div.querySelector(".tri");
     const showFold = () => {
-      fold.textContent = `${(+b.depth).toFixed(3)} ${b.open ? "▾" : "▸"}`;
-      fold.title = b.open ? "Hide the sliders" : "Show the sliders";
-      fold.setAttribute("aria-expanded", b.open);
+      fold.textContent = (+b.depth).toFixed(3);
+      tri.textContent = b.open ? "▾" : "▸";
+      for (const el of [fold, tri]) {
+        el.title = b.open ? "Hide the sliders" : "Show the sliders";
+        el.setAttribute("aria-expanded", b.open);
+      }
       div.classList.toggle("folded", !b.open);
     };
-    fold.onclick = () => { b.open = !b.open; showFold(); };
+    fold.onclick = tri.onclick = () => { b.open = !b.open; showFold(); };
     showFold();
     const colour = FOCUS_COLOURS[i % FOCUS_COLOURS.length];      // its tint in the Highlights view
     div.querySelector(".dot").style.background = colour;
@@ -430,6 +439,36 @@ $("download").onclick = async () => {
   } catch (e) { $("saved").textContent = "download failed: " + e.message; }
   finally { btn.disabled = false; }
 };
+
+// Collapsible sidebar sections: a ▾/▸ on the left of each heading, remembered in this browser.
+const COLLAPSED_KEY = "vathopy.collapsed";
+let collapsed = {};
+try { collapsed = JSON.parse(localStorage.getItem(COLLAPSED_KEY) || "{}") || {}; } catch { collapsed = {}; }
+for (const h of document.querySelectorAll("aside h2")) {
+  const name = h.textContent.trim();
+  const body = document.createElement("div");
+  body.className = "section";
+  while (h.nextElementSibling && h.nextElementSibling.tagName !== "H2") body.appendChild(h.nextElementSibling);
+  h.after(body);
+  const btn = document.createElement("button");
+  btn.type = "button"; btn.className = "sec";
+  btn.innerHTML = `<span class="tri" aria-hidden="true"></span>`;
+  btn.append(name);
+  h.replaceChildren(btn);
+  const show = () => {
+    const c = !!collapsed[name];
+    body.hidden = c;
+    btn.setAttribute("aria-expanded", !c);
+    btn.title = c ? `Show ${name}` : `Hide ${name}`;
+    btn.querySelector(".tri").textContent = c ? "▸" : "▾";
+  };
+  btn.onclick = () => {
+    collapsed[name] = !collapsed[name];
+    try { localStorage.setItem(COLLAPSED_KEY, JSON.stringify(collapsed)); } catch { /* not remembered */ }
+    show();
+  };
+  show();
+}
 
 init().catch((e) => { $("empty").textContent = "error: " + e.message; });
 </script>

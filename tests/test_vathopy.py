@@ -1,6 +1,7 @@
 """Unit tests that run without Blender (pytest)."""
 import json
 import os
+import pathlib
 import subprocess
 import sys
 
@@ -524,6 +525,126 @@ def test_gui_highlight_tints_each_focus():
     lk["focus"][1]["enabled"] = False                                  # strength 0: a faint tint only
     out, info = vathopy.render(d, dict(lk, base="BLACK"))
     assert info["terms"] == 1 and out[10, 150, 0] < 1e-6 and out[10, 50, 0] > 0.99   # nor in the result
+
+
+def test_user_palettes_from_a_folder(tmp_path):
+    import cv2
+    from vathopy import palettes as PAL
+    folder = tmp_path / "palettes"; folder.mkdir()
+    grad = np.zeros((20, 200, 3), np.uint8)
+    grad[..., 2] = np.linspace(255, 0, 200)[None, :]             # red (BGR) on the left = near
+    grad[..., 0] = np.linspace(0, 255, 200)[None, :]             # blue on the right = far
+    cv2.imwrite(str(folder / "red to blue.png"), grad)
+    blocks = np.zeros((10, 90, 3), np.uint8)
+    blocks[:, :30] = (0, 0, 255); blocks[:, 30:60] = (0, 255, 0); blocks[:, 60:] = (255, 0, 0)   # red, green, blue
+    cv2.imwrite(str(folder / "blocks.png"), blocks.transpose(1, 0, 2))   # tall: read top to bottom
+    (folder / "two.json").write_text(json.dumps({"warm": {"name": "Warm", "stops": [[0, "#000000"], [1, "#FFAA00"]]},
+                                                 "cold": {"stops": [[0, "#000000"], [1, "#00AAFF"]]}}))
+    (folder / "gimp.gpl").write_text("GIMP Palette\nName: g\n#\n255 255 255 white\n0 0 0 black\n")
+    (folder / "mist.png").write_bytes((folder / "red to blue.png").read_bytes())   # clashes with a built-in
+    (folder / "broken.json").write_text("{nope")
+    (folder / "notes.txt").write_text("ignored")
+    try:
+        warnings = PAL.register(folder, quiet=True)
+        assert any("MIST" in w for w in warnings) and any("broken.json" in w for w in warnings)
+        assert PRESETS["MIST"]["desc"].startswith("Near dark")                 # the built-in is untouched
+        for key in ("RED_TO_BLUE", "BLOCKS", "WARM", "COLD", "GIMP"):
+            assert PRESETS[key]["user"], key
+        near, far = preset("RED_TO_BLUE").evaluate(np.array([1.0, 0.0]))     # pos 1 = near
+        assert near[0] > 0.9 and near[2] < 0.1 and far[2] > 0.9 and far[0] < 0.1
+        st = PRESETS["BLOCKS"]["stops"]
+        assert [c for _, c in sorted(st, reverse=True)] == ["#FF0000", "#00FF00", "#0000FF"]   # top = near
+        assert len(PRESETS["RED_TO_BLUE"]["stops"]) <= PAL.MAX_STOPS
+        assert PRESETS["GIMP"]["stops"] == [[0.0, "#000000"], [1.0, "#FFFFFF"]]  # first colour = near
+        out, _ = vathopy.render(depth_field(), {"ramp": {"preset": "WARM"}})
+        assert np.isfinite(out).all()
+        (folder / "warm.json").unlink() if (folder / "warm.json").exists() else None
+        (folder / "gimp.gpl").unlink()
+        PAL.register(folder, quiet=True)
+        assert "GIMP" not in PRESETS                                            # removed files drop out
+        r = subprocess.run([sys.executable, "-m", "vathopy.cli", "--palettes", str(folder), "presets"],
+                           check=True, capture_output=True, text=True)
+        assert "RED_TO_BLUE" in r.stdout and "yours: red to blue.png" in r.stdout
+    finally:
+        PAL.register(tmp_path / "none", quiet=True)                           # leave only the built-ins
+    assert "RED_TO_BLUE" not in PRESETS and len(PRESETS) == 41
+
+
+def test_user_palettes_reject_hostile_files(tmp_path):
+    import struct, zlib
+    from vathopy import palettes as PAL
+    folder = tmp_path / "palettes"; folder.mkdir()
+    # a few hundred bytes claiming 60000 x 60000 pixels: refused from the header, never decoded
+    ihdr = struct.pack(">IIBBBBB", 60000, 60000, 8, 2, 0, 0, 0)
+    chunk = lambda t, d: struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d))
+    (folder / "bomb.png").write_bytes(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", zlib.compress(b"\0" * 100))
+                                      + chunk(b"IEND", b""))
+    (folder / "fake.png").write_text("not really a png")
+    good = {"stops": [[0, "#000000"], [1, "#FFFFFF"]]}
+    (folder / "escape.json").write_text(json.dumps(dict(good, name="\x1b[2J\x1b]0;pwned\x07Evil <script>x</script>",
+                                                         desc="line1\nline2\u202e" + "x" * 500)))
+    (folder / "nan.json").write_text('{"stops": [[NaN, "#000000"], [1, "#FFFFFF"]]}')
+    (folder / "many.json").write_text(json.dumps({"stops": [[i / 99, "#000000"] for i in range(100)]}))
+    (folder / "colour.json").write_text(json.dumps({"stops": [[0, "red;background:url(x)"]]}))
+    (folder / "boolpos.json").write_text(json.dumps({"stops": [[True, "#000000"]]}))
+    (folder / "interp.json").write_text(json.dumps(dict(good, interpolation="__import__('os')")))
+    (folder / "big.json").write_text(json.dumps(dict(good, desc="x" * (PAL.MAX_TEXT_BYTES + 10))))
+    (folder / "deep.json").write_text("[" * 100000 + "]" * 100000)
+    (folder / "gimp.gpl").write_text("GIMP Palette\n" + "1 2 3 c\n" * 40)
+    secret = tmp_path / "secret.json"; secret.write_text(json.dumps(good))
+    (folder / "link.json").symlink_to(secret)
+    found, report = PAL.read_folder(folder)
+    status = {f: (st, detail) for f, st, detail in report}
+    assert list(found) == ["ESCAPE"], found                                  # only the clean one loads
+    for f in ("bomb.png", "fake.png", "nan.json", "many.json", "colour.json", "boolpos.json", "interp.json",
+              "big.json", "deep.json", "gimp.gpl", "link.json"):
+        assert status[f][0] == "rejected", (f, status.get(f))
+    assert "megapixels" in status["bomb.png"][1] and "symlink" in status["link.json"][1]
+    e = found["ESCAPE"]
+    assert not any(ord(c) < 32 or ord(c) == 0x7F or c == "\u202e" for c in e["name"] + e["desc"])
+    assert len(e["desc"]) <= PAL.MAX_DESC and len(e["name"]) <= PAL.MAX_NAME
+    # the GUI puts names on the page as text, never as HTML
+    html = (pathlib.Path(vathopy.__file__).with_name("gui.html")).read_text()
+    assert 'querySelector(".name").textContent = p.label' in html and "${p.label}" not in html
+    # check-palettes reports every file and fails when any is rejected
+    r = subprocess.run([sys.executable, "-m", "vathopy.cli", "check-palettes", str(folder)], capture_output=True, text=True)
+    assert r.returncode == 1 and "REJECTED  bomb.png" in r.stdout and "OK" in r.stdout and "\x1b" not in r.stdout
+    ok_dir = tmp_path / "ok"; ok_dir.mkdir(); (ok_dir / "fine.json").write_text(json.dumps(good))
+    r = subprocess.run([sys.executable, "-m", "vathopy.cli", "check-palettes", str(ok_dir)], capture_output=True, text=True)
+    assert r.returncode == 0 and "1 ok, 0 rejected" in r.stdout
+
+
+def test_depth_maps_are_checked_before_decoding(tmp_path, monkeypatch):
+    import struct, zlib
+    from vathopy import gui
+    d = depth_field()
+    vathopy.write_depth(d, str(tmp_path / "ok.exr"))
+    raw, _ = VIO.read_image_channel0(str(tmp_path / "ok.exr"))
+    assert raw.shape == d.shape
+    monkeypatch.setattr(VIO, "MAX_DEPTH_PIXELS", 100)                      # pretend 90 x 120 is too big
+    called = []
+    import OpenEXR
+    real = OpenEXR.File
+    monkeypatch.setattr(OpenEXR, "File", lambda *a, **k: (called.append(k.get("header_only", False)), real(*a, **k))[1])
+    with pytest.raises(ValueError, match="too big"):
+        VIO.read_image_channel0(str(tmp_path / "ok.exr"))
+    assert called == [True]                                                # refused from the header alone
+    monkeypatch.undo()
+    # a PNG that claims 60000 x 60000 pixels in a few hundred bytes
+    ihdr = struct.pack(">IIBBBBB", 60000, 60000, 16, 0, 0, 0, 0)
+    chunk = lambda t, data: struct.pack(">I", len(data)) + t + data + struct.pack(">I", zlib.crc32(t + data))
+    (tmp_path / "bomb.png").write_bytes(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IEND", b""))
+    with pytest.raises(ValueError, match="too big"):
+        VIO.read_image_channel0(str(tmp_path / "bomb.png"))
+    # .npy: numbers only, and never unpickled
+    np.save(tmp_path / "obj.npy", np.array([{"a": 1}], dtype=object), allow_pickle=True)
+    with pytest.raises(ValueError):
+        VIO.read_image_channel0(str(tmp_path / "obj.npy"))
+    np.save(tmp_path / "ok.npy", d)
+    assert VIO.read_image_channel0(str(tmp_path / "ok.npy"))[0].shape == d.shape
+    # the GUI lists regular files only
+    (tmp_path / "link.exr").symlink_to(tmp_path / "ok.exr")
+    assert gui.Maps(tmp_path).list() == ["ok.exr"]
 
 
 def test_cli(tmp_path):

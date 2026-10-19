@@ -12,14 +12,52 @@ os.environ.setdefault("OPENCV_IO_ENABLE_OPENEXR", "1")
 
 DEPTH_EXTENSIONS = (".exr", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".npy")
 
+# Depth maps are checked before they're decoded: a small (compressed) file can declare a huge
+# picture and exhaust memory, and the decoders are C/C++ code best handed sane input.
+MAX_DEPTH_PIXELS = 100_000_000    # 10000 x 10000; Marigold runs well below 4000 px
+MAX_DEPTH_SIDE = 32768
+MAX_EXR_CHANNELS = 64
+# OpenCV's own cap for anything it decodes (PNG, JPEG, TIFF): read when cv2 is first imported.
+os.environ.setdefault("OPENCV_IO_MAX_IMAGE_PIXELS", str(MAX_DEPTH_PIXELS))
+
+
+def check_size(w, h, path):
+    """Refuse a declared picture size that's empty or too big, before decoding it."""
+    w, h = int(w), int(h)
+    if w < 1 or h < 1:
+        raise ValueError(f"{path}: empty picture ({w} x {h})")
+    if w > MAX_DEPTH_SIDE or h > MAX_DEPTH_SIDE or w * h > MAX_DEPTH_PIXELS:
+        raise ValueError(f"{path}: {w} x {h} pixels is too big (at most {MAX_DEPTH_PIXELS // 1_000_000} "
+                         f"megapixels and {MAX_DEPTH_SIDE} px a side)")
+
 
 def _cv2():
     import cv2
     return cv2
 
 
+def check_exr_header(path):
+    """Read only an EXR's header and refuse files vathopy shouldn't decode: several parts, deep or
+    unknown storage, too many channels, or a data window that's empty or too big."""
+    import OpenEXR
+    with OpenEXR.File(os.fspath(path), header_only=True) as f:   # read it all before the file closes
+        parts = len(f.parts)
+        hdr = f.header()
+        kind, n_channels = hdr.get("type"), len(hdr.get("channels", []))
+        window = hdr.get("dataWindow")
+        (x0, y0), (x1, y1) = window if window is not None else ((0, 0), (-1, -1))
+    if parts != 1:
+        raise ValueError(f"{path}: multi-part EXR ({parts} parts) isn't supported")
+    if kind is not None and kind not in (OpenEXR.scanlineimage, OpenEXR.tiledimage):   # absent: a flat image
+        raise ValueError(f"{path}: only flat (scanline or tiled) EXR images are supported, not {kind}")
+    if n_channels > MAX_EXR_CHANNELS:
+        raise ValueError(f"{path}: {n_channels} channels; at most {MAX_EXR_CHANNELS}")
+    check_size(int(x1) - int(x0) + 1, int(y1) - int(y0) + 1, path)
+
+
 def _read_exr(path):
     import OpenEXR
+    check_exr_header(path)
     with OpenEXR.File(os.fspath(path)) as f:
         ch = f.channels()
         for name in ("R", "Y", "V", "Z", "depth"):
@@ -39,6 +77,14 @@ def read_image_channel0(path):
     path = os.fspath(path)  # OpenEXR and OpenCV take str only, not pathlib.Path
     ext = os.path.splitext(path)[1].lower()
     if ext == ".npy":
+        # allow_pickle=False: a pickled array could run code when loaded. Look at the declared
+        # shape and type (memory-mapped, nothing read yet) before loading the data.
+        m = np.load(path, mmap_mode="r", allow_pickle=False)
+        if m.dtype.kind not in "biuf":
+            raise ValueError(f"{path}: expected numbers, got {m.dtype}")
+        if m.size > MAX_DEPTH_PIXELS * 4:
+            raise ValueError(f"{path}: {m.shape} is too big")
+        del m
         a = np.load(path, allow_pickle=False)
         a = np.squeeze(a)
         if a.ndim == 3:
@@ -46,6 +92,9 @@ def read_image_channel0(path):
         return a.astype(np.float32), {"format": "npy", "bits": 32}
     if ext == ".exr":
         return _read_exr(path), {"format": "exr", "bits": 32}
+    if ext in (".png", ".jpg", ".jpeg"):
+        from .palettes import image_size
+        check_size(*image_size(path), path)                    # from the header, before decoding
     cv2 = _cv2()
     a = cv2.imread(path, cv2.IMREAD_UNCHANGED)
     if a is None:

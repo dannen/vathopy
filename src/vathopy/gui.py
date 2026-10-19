@@ -39,6 +39,7 @@ import numpy as np
 
 from . import io as VIO
 from . import look as LOOK
+from . import palettes as PAL
 from .engine import focus_depth_at, focus_weights, render, smooth_depth
 from .probe import probe
 from .ramp import PRESETS, Ramp
@@ -73,7 +74,9 @@ def palettes():
         ramp = Ramp.from_dict(FRINGE_RAMP if key == FRINGE else {"preset": key})
         rgb = ramp.evaluate(np.linspace(1.0, 0.0, 9, dtype=np.float32))[:, :3]   # near -> far
         label = "Black/white fringe (EASE)" if key == FRINGE else PRESETS[key]["name"]
-        out.append({"key": key, "label": label, "colours": [_hex(c) for c in _srgb8(rgb)]})
+        mine = key != FRINGE and bool(PRESETS[key].get("user"))
+        out.append({"key": key, "label": label + (" ★" if mine else ""), "user": mine,
+                    "colours": [_hex(c) for c in _srgb8(rgb)]})
     return out
 
 
@@ -190,8 +193,8 @@ class Maps:
     def list(self):
         """Depth maps only: normals/albedo outputs and bench.py runs are left out."""
         skip = ("normals", "albedo", "bench_")
-        return sorted(p.name for p in self.folder.glob("*.exr")
-                      if p.is_file() and not any(k in p.name for k in skip))
+        return sorted(p.name for p in self.folder.glob("*.exr")      # regular files only: no symlinks
+                      if p.is_file() and not p.is_symlink() and not any(k in p.name for k in skip))
 
     def depth(self, name, smooth=0.0):
         if name not in self.list():
@@ -223,7 +226,7 @@ def _safe_name(text):
     return re.sub(r"[^A-Za-z0-9_-]+", "_", str(text or "")).strip("_-")[:80]
 
 
-def make_handler(maps, favourites, preview_size, auth=None):
+def make_handler(maps, favourites, preview_size, auth=None, palettes_dir=None):
     favourites = Path(favourites).expanduser()
 
     class Handler(BaseHTTPRequestHandler):
@@ -281,6 +284,7 @@ def make_handler(maps, favourites, preview_size, auth=None):
                 if path == "/api/maps":
                     return self._send(200, {"folder": str(maps.folder), "maps": maps.list()})
                 if path == "/api/palettes":
+                    PAL.register(palettes_dir, quiet=True)      # files added since: in; removed: out
                     return self._send(200, palettes())
                 if path == "/api/looks":
                     looks = sorted(p.stem for p in (favourites / "looks").glob("*.json"))
@@ -396,16 +400,19 @@ def make_handler(maps, favourites, preview_size, auth=None):
     return Handler
 
 
-def serve(depth_dir, favourites, host="127.0.0.1", port=8770, preview_size=1280):
+def serve(depth_dir, favourites, host="127.0.0.1", port=8770, preview_size=1280, palettes_dir=None):
     maps = Maps(depth_dir)
+    palettes_dir = palettes_dir or PAL.default_dir()
+    PAL.register(palettes_dir)
     auth = os.environ.get("VATHOPY_GUI_AUTH") or None
     if auth and ":" not in auth:
         raise SystemExit("VATHOPY_GUI_AUTH must be user:password")
     if host not in ("127.0.0.1", "localhost", "::1") and not auth:
         print("warning: listening on a network address with no VATHOPY_GUI_AUTH set", flush=True)
-    httpd = ThreadingHTTPServer((host, port), make_handler(maps, favourites, preview_size, auth))
+    httpd = ThreadingHTTPServer((host, port), make_handler(maps, favourites, preview_size, auth, palettes_dir))
     print(f"vathopy gui on http://{host}:{port}/  (depth maps: {maps.folder}, {len(maps.list())} found; "
-          f"saves to {Path(favourites).expanduser()}; " + ("password required)" if auth else "no password)"), flush=True)
+          f"saves to {Path(favourites).expanduser()}; your palettes: {Path(palettes_dir).expanduser()}; "
+          + ("password required)" if auth else "no password)"), flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

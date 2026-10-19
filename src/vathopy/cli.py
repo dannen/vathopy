@@ -5,10 +5,12 @@ import argparse
 import json
 import os
 import sys
+from pathlib import Path
 
 from . import __version__
 from . import io as VIO
 from . import look as LOOK
+from . import palettes as PAL
 from .engine import render
 from .ramp import PRESETS
 
@@ -204,12 +206,37 @@ def cmd_init(a):
 
 def cmd_presets(a):
     for k, e in PRESETS.items():
-        print(f"{k:24s} {e['interpolation']:9s} {e['desc']}")
+        mine = f"  [yours: {e['source']}]" if e.get("user") else ""
+        print(f"{k:24s} {e['interpolation']:9s} {e['desc']}{mine}")
+
+
+def cmd_check_palettes(a):
+    folder = Path(a.folder or a.palettes).expanduser()
+    if not folder.is_dir():
+        sys.exit(f"no palette folder at {folder}")
+    _found, report = PAL.read_folder(folder)
+    if not report:
+        print(f"{folder}: no palette files (.png .jpg .jpeg .json .gpl)")
+    width = max((len(f) for f, _, _ in report), default=0)
+    for fname, status, detail in report:
+        print(f"{status.upper():9s} {fname:{width}s}  {detail}")
+    bad = sum(status != "ok" for _, status, _ in report)
+    print(f"{len(report) - bad} ok, {bad} rejected or skipped")
+    if bad:
+        sys.exit(1)
 
 
 def main(argv=None):
+    # Your palettes join the presets before the parser lists them as choices.
+    pre = argparse.ArgumentParser(add_help=False)
+    pre.add_argument("--palettes", default=PAL.default_dir())
+    PAL.register(pre.parse_known_args(argv)[0].palettes)
+
     p = argparse.ArgumentParser(prog="vathopy", description="Vathography without Blender: depth map + look -> picture")
     p.add_argument("--version", action="version", version=__version__)
+    p.add_argument("--palettes", default=PAL.default_dir(), metavar="DIR",
+                   help="folder of your own palettes (images, .json, .gpl), added to the presets; default "
+                        "$VATHOPY_PALETTES or ~/Pictures/vathography/palettes (give it before the command)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     q = sub.add_parser("prep", help="raw Marigold prediction (.npy/.exr/.png) -> clean near-bright depth map")
@@ -282,13 +309,17 @@ def main(argv=None):
     g.add_argument("--port", type=int, default=8770, help="port (default 8770)")
     g.add_argument("--preview-size", type=int, default=1280, help="max preview size in px while dragging (default 1280)")
     g.set_defaults(fn=lambda a: __import__("vathopy.gui", fromlist=["serve"]).serve(
-        a.depth_dir, a.favourites, a.host, a.port, a.preview_size))
+        a.depth_dir, a.favourites, a.host, a.port, a.preview_size, a.palettes))
 
     i = sub.add_parser("init", help="write a starter look JSON")
     i.add_argument("path")
     i.add_argument("--preset", choices=list(PRESETS))
     i.add_argument("--force", action="store_true")
     i.set_defaults(fn=cmd_init)
+
+    c = sub.add_parser("check-palettes", help="check your palette files (safe, readable) and report each one")
+    c.add_argument("folder", nargs="?", help="folder to check (default: the --palettes folder)")
+    c.set_defaults(fn=cmd_check_palettes)
 
     s = sub.add_parser("presets", help="list the ramp presets")
     s.set_defaults(fn=cmd_presets)
