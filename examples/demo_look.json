@@ -1,0 +1,13 @@
+{
+  "vathopy_look": 1,
+  "comment": "Demo: three-cycle fringe ramp, a dark band slicing through mid depth, and a soft white area lifting the nearest subject.",
+  "ramp": {"preset": "FRINGE_3_BW"},
+  "ramp_near_left": true,
+  "base": "RAMP",
+  "bands": [
+    {"name": "mid slice", "center": [0.0, 0.0, -0.4], "width": 0.05, "softness": 0.08, "strength": -1.0, "interpolation": "EASE"}
+  ],
+  "areas": [
+    {"name": "near glow", "position": [0.0, -0.1, 1.6], "radius": [0.45, 0.6, 0.6], "strength": 0.7, "falloff": 1.2, "edge": 0.6}
+  ]
+}

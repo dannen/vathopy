@@ -1,0 +1,53 @@
+{
+  "vathopy_look": 1,
+  "source": {
+    "blend": "vathography_template.blend",
+    "relief": "vathography_template",
+    "addon_version": "1.0.95",
+    "depth_map": "vathography_template.jpg"
+  },
+  "plane": {
+    "width": 1.5,
+    "height": 1.5,
+    "scale": 4.0,
+    "midlevel": 0.5
+  },
+  "flip": false,
+  "controls": [],
+  "window": [
+    0.0,
+    1.0
+  ],
+  "tilt": null,
+  "ramp": {
+    "interpolation": "LINEAR",
+    "color_mode": "RGB",
+    "hue_interpolation": "NEAR",
+    "stops": [
+      [
+        0.0,
+        [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ]
+      ],
+      [
+        1.0,
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    ]
+  },
+  "ramp_near_left": true,
+  "base": "RAMP",
+  "bands": [],
+  "areas": [],
+  "groups": {},
+  "solo": ""
+}

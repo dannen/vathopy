@@ -1,0 +1,1226 @@
+{
+ "BLACK_TO_WHITE": {
+  "name": "Black to white",
+  "desc": "Near black, far white",
+  "interpolation": "LINEAR",
+  "stops": [
+   [
+    0.0,
+    "#FFFFFF"
+   ],
+   [
+    1.0,
+    "#000000"
+   ]
+  ]
+ },
+ "WHITE_TO_BLACK": {
+  "name": "White to black",
+  "desc": "Near white, far black -- the depth map as it is; a new relief starts here",
+  "interpolation": "LINEAR",
+  "stops": [
+   [
+    0.0,
+    "#000000"
+   ],
+   [
+    1.0,
+    "#FFFFFF"
+   ]
+  ]
+ },
+ "BLACK_WHITE_BLACK": {
+  "name": "Black \u2013 white \u2013 black",
+  "desc": "One white ridge at mid depth",
+  "interpolation": "LINEAR",
+  "stops": [
+   [
+    0.0,
+    "#000000"
+   ],
+   [
+    0.5,
+    "#FFFFFF"
+   ],
+   [
+    1.0,
+    "#000000"
+   ]
+  ]
+ },
+ "WHITE_BLACK_WHITE": {
+  "name": "White \u2013 black \u2013 white",
+  "desc": "One black valley at mid depth",
+  "interpolation": "LINEAR",
+  "stops": [
+   [
+    0.0,
+    "#FFFFFF"
+   ],
+   [
+    0.5,
+    "#000000"
+   ],
+   [
+    1.0,
+    "#FFFFFF"
+   ]
+  ]
+ },
+ "FRINGE_2_WB": {
+  "name": "Fringe 2 cycles WB",
+  "desc": "2 cycles through the depth; the nearest band is white",
+  "interpolation": "EASE",
+  "stops": [
+   [
+    0.0,
+    1.0
+   ],
+   [
+    0.25,
+    0.0
+   ],
+   [
+    0.5,
+    1.0
+   ],
+   [
+    0.75,
+    0.0
+   ],
+   [
+    1.0,
+    1.0
+   ]
+  ]
+ },
+ "FRINGE_2_BW": {
+  "name": "Fringe 2 cycles BW",
+  "desc": "2 cycles through the depth; the nearest band is black",
+  "interpolation": "EASE",
+  "stops": [
+   [
+    0.0,
+    0.0
+   ],
+   [
+    0.25,
+    1.0
+   ],
+   [
+    0.5,
+    0.0
+   ],
+   [
+    0.75,
+    1.0
+   ],
+   [
+    1.0,
+    0.0
+   ]
+  ]
+ },
+ "FRINGE_3_WB": {
+  "name": "Fringe 3 cycles WB",
+  "desc": "3 cycles through the depth; the nearest band is white",
+  "interpolation": "EASE",
+  "stops": [
+   [
+    0.0,
+    1.0
+   ],
+   [
+    0.1667,
+    0.0
+   ],
+   [
+    0.3333,
+    1.0
+   ],
+   [
+    0.5,
+    0.0
+   ],
+   [
+    0.6667,
+    1.0
+   ],
+   [
+    0.8333,
+    0.0
+   ],
+   [
+    1.0,
+    1.0
+   ]
+  ]
+ },
+ "FRINGE_3_BW": {
+  "name": "Fringe 3 cycles BW",
+  "desc": "3 cycles through the depth; the nearest band is black",
+  "interpolation": "EASE",
+  "stops": [
+   [
+    0.0,
+    0.0
+   ],
+   [
+    0.1667,
+    1.0
+   ],
+   [
+    0.3333,
+    0.0
+   ],
+   [
+    0.5,
+    1.0
+   ],
+   [
+    0.6667,
+    0.0
+   ],
+   [
+    0.8333,
+    1.0
+   ],
+   [
+    1.0,
+    0.0
+   ]
+  ]
+ },
+ "VERMILION_INK_CYAN": {
+  "name": "Vermilion \u2013 ink \u2013 cyan",
+  "desc": "Colour contrast from near to far: Vermilion \u2013 ink \u2013 cyan",
+  "interpolation": "B_SPLINE",
+  "stops": [
+   [
+    0.0,
+    "#2FA9C0"
+   ],
+   [
+    0.1542,
+    "#30737F"
+   ],
+   [
+    0.322,
+    "#283E40"
+   ],
+   [
+    0.5,
+    "#16130F"
+   ],
+   [
+    0.6753,
+    "#572617"
+   ],
+   [
+    0.8392,
+    "#A73217"
+   ],
+   [
+    1.0,
+    "#FF3500"
+   ]
+  ]
+ },
+ "VERMILION_PLUM_CYAN": {
+  "name": "Vermilion \u2013 plum \u2013 cyan",
+  "desc": "Colour contrast from near to far: Vermilion \u2013 plum \u2013 cyan",
+  "interpolation": "B_SPLINE",
+  "stops": [
+   [
+    0.0,
+    "#2FA9C0"
+   ],
+   [
+    0.1584,
+    "#40728C"
+   ],
+   [
+    0.3242,
+    "#3C3D5A"
+   ],
+   [
+    0.5,
+    "#2A0F2E"
+   ],
+   [
+    0.668,
+    "#642235"
+   ],
+   [
+    0.8383,
+    "#AE2F2F"
+   ],
+   [
+    1.0,
+    "#FF3500"
+   ]
+  ]
+ },
+ "INDIGO_INK_VERMILION": {
+  "name": "Indigo \u2013 ink \u2013 vermilion",
+  "desc": "Colour contrast from near to far: Indigo \u2013 ink \u2013 vermilion",
+  "interpolation": "B_SPLINE",
+  "stops": [
+   [
+    0.0,
+    "#FF3500"
+   ],
+   [
+    0.1597,
+    "#A83116"
+   ],
+   [
+    0.3247,
+    "#572617"
+   ],
+   [
+    0.5,
+    "#16130F"
+   ],
+   [
+    0.6826,
+    "#1F2E47"
+   ],
+   [
+    0.8409,
+    "#284688"
+   ],
+   [
+    1.0,
+    "#2C5FD0"
+   ]
+  ]
+ },
+ "SCARLET_INK_AZURE": {
+  "name": "Scarlet \u2013 ink \u2013 azure",
+  "desc": "Colour contrast from near to far: Scarlet \u2013 ink \u2013 azure",
+  "interpolation": "B_SPLINE",
+  "stops": [
+   [
+    0.0,
+    "#2E8BFF"
+   ],
+   [
+    0.1555,
+    "#2D61A6"
+   ],
+   [
+    0.3227,
+    "#243850"
+   ],
+   [
+    0.5,
+    "#16130F"
+   ],
+   [
+    0.6753,
+    "#501F1A"
+   ],
+   [
+    0.8365,
+    "#942023"
+   ],
+   [
+    1.0,
+    "#E0002A"
+   ]
+  ]
+ },
+ "LACQUER_INK_JADE": {
+  "name": "Lacquer red \u2013 ink \u2013 jade",
+  "desc": "Colour contrast from near to far: Lacquer red \u2013 ink \u2013 jade",
+  "interpolation": "B_SPLINE",
+  "stops": [
+   [
+    0.0,
+    "#5FBF9A"
+   ],
+   [
+    0.1543,
+    "#4A8067"
+   ],
+   [
+    0.3231,
+    "#2F4338"
+   ],
+   [
+    0.5,
+    "#16130F"
+   ],
+   [
+    0.6787,
+    "#4B1E1A"
+   ],
+   [
+    0.8428,
+    "#882025"
+   ],
+   [
+    1.0,
+    "#C8102E"
+   ]
+  ]
+ },
+ "MAGENTA_INK_EMERALD": {
+  "name": "Magenta \u2013 ink \u2013 emerald",
+  "desc": "Colour contrast from near to far: Magenta \u2013 ink \u2013 emerald",
+  "interpolation": "B_SPLINE",
+  "stops": [
+   [
+    0.0,
+    "#13B28A"
+   ],
+   [
+    0.1586,
+    "#29775C"
+   ],
+   [
+    0.3228,
+    "#264032"
+   ],
+   [
+    0.5,
+    "#16130F"
+   ],
+   [
+    0.6838,
+    "#532834"
+   ],
+   [
+    0.8475,
+    "#9B3961"
+   ],
+   [
+    1.0,
+    "#E5468E"
+   ]
+  ]
+ },
+ "VIOLET_INK_CHARTREUSE": {
+  "name": "Violet \u2013 ink \u2013 chartreuse",
+  "desc": "Colour contrast from near to far: Violet \u2013 ink \u2013 chartreuse",
+  "interpolation": "B_SPLINE",
+  "stops": [
+   [
+    0.0,
+    "#BFD62B"
+   ],
+   [
+    0.1522,
+    "#828F2B"
+   ],
+   [
+    0.3229,
+    "#474821"
+   ],
+   [
+    0.5,
+    "#16130F"
+   ],
+   [
+    0.6848,
+    "#392949"
+   ],
+   [
+    0.8437,
+    "#5F3E8D"
+   ],
+   [
+    1.0,
+    "#8A4FD6"
+   ]
+  ]
+ },
+ "CYAN_INK_MAGENTA": {
+  "name": "Cyan \u2013 ink \u2013 magenta",
+  "desc": "Colour contrast from near to far: Cyan \u2013 ink \u2013 magenta",
+  "interpolation": "B_SPLINE",
+  "stops": [
+   [
+    0.0,
+    "#E5468E"
+   ],
+   [
+    0.1555,
+    "#993960"
+   ],
+   [
+    0.3256,
+    "#4F2735"
+   ],
+   [
+    0.5,
+    "#16130F"
+   ],
+   [
+    0.6849,
+    "#294347"
+   ],
+   [
+    0.8402,
+    "#2D798B"
+   ],
+   [
+    1.0,
+    "#1FB5D6"
+   ]
+  ]
+ },
+ "VERMILION_PAPER_INDIGO": {
+  "name": "Vermilion \u2013 paper \u2013 indigo",
+  "desc": "Colour contrast from near to far: Vermilion \u2013 paper \u2013 indigo",
+  "interpolation": "B_SPLINE",
+  "stops": [
+   [
+    0.0,
+    "#1E3F8A"
+   ],
+   [
+    0.1807,
+    "#6179AB"
+   ],
+   [
+    0.3466,
+    "#A8B5CA"
+   ],
+   [
+    0.5,
+    "#F4EEE2"
+   ],
+   [
+    0.6583,
+    "#F9B8A4"
+   ],
+   [
+    0.8277,
+    "#F57C65"
+   ],
+   [
+    1.0,
+    "#E8301C"
+   ]
+  ]
+ },
+ "MAGENTA_PAPER_EMERALD": {
+  "name": "Magenta \u2013 paper \u2013 emerald",
+  "desc": "Colour contrast from near to far: Magenta \u2013 paper \u2013 emerald",
+  "interpolation": "B_SPLINE",
+  "stops": [
+   [
+    0.0,
+    "#0E8F6E"
+   ],
+   [
+    0.1789,
+    "#72B094"
+   ],
+   [
+    0.3396,
+    "#B3CFBA"
+   ],
+   [
+    0.5,
+    "#F4EEE2"
+   ],
+   [
+    0.6615,
+    "#F2B4C0"
+   ],
+   [
+    0.8289,
+    "#E8789E"
+   ],
+   [
+    1.0,
+    "#D62F7E"
+   ]
+  ]
+ },
+ "CYAN_PAPER_MAGENTA": {
+  "name": "Cyan \u2013 paper \u2013 magenta",
+  "desc": "Colour contrast from near to far: Cyan \u2013 paper \u2013 magenta",
+  "interpolation": "B_SPLINE",
+  "stops": [
+   [
+    0.0,
+    "#C9306F"
+   ],
+   [
+    0.1769,
+    "#E07895"
+   ],
+   [
+    0.3361,
+    "#EDB2BA"
+   ],
+   [
+    0.5,
+    "#F4EEE2"
+   ],
+   [
+    0.6624,
+    "#B5D0D4"
+   ],
+   [
+    0.8274,
+    "#73B2C5"
+   ],
+   [
+    1.0,
+    "#1593B5"
+   ]
+  ]
+ },
+ "AMBER_INK_COBALT": {
+  "name": "Amber \u2013 ink \u2013 cobalt",
+  "desc": "Colour contrast from near to far: Amber \u2013 ink \u2013 cobalt (vathopy)",
+  "interpolation": "B_SPLINE",
+  "stops": [
+   [
+    0.0,
+    "#1F5BD8"
+   ],
+   [
+    0.1667,
+    "#20448F"
+   ],
+   [
+    0.3333,
+    "#1D2C4C"
+   ],
+   [
+    0.5,
+    "#16130F"
+   ],
+   [
+    0.6667,
+    "#5A3C1D"
+   ],
+   [
+    0.8333,
+    "#A96923"
+   ],
+   [
+    1.0,
+    "#FF9A1F"
+   ]
+  ]
+ },
+ "GOLD_INK_VIOLET": {
+  "name": "Gold \u2013 ink \u2013 violet",
+  "desc": "Colour contrast from near to far: Gold \u2013 ink \u2013 violet (vathopy)",
+  "interpolation": "B_SPLINE",
+  "stops": [
+   [
+    0.0,
+    "#6B3FD1"
+   ],
+   [
+    0.1667,
+    "#4B348B"
+   ],
+   [
+    0.3333,
+    "#2F254A"
+   ],
+   [
+    0.5,
+    "#16130F"
+   ],
+   [
+    0.6667,
+    "#564721"
+   ],
+   [
+    0.8333,
+    "#A1822C"
+   ],
+   [
+    1.0,
+    "#F2C230"
+   ]
+  ]
+ },
+ "CORAL_INK_TEAL": {
+  "name": "Coral \u2013 ink \u2013 teal",
+  "desc": "Colour contrast from near to far: Coral \u2013 ink \u2013 teal (vathopy)",
+  "interpolation": "B_SPLINE",
+  "stops": [
+   [
+    0.0,
+    "#1BA39C"
+   ],
+   [
+    0.1667,
+    "#286F68"
+   ],
+   [
+    0.3333,
+    "#243E39"
+   ],
+   [
+    0.5,
+    "#16130F"
+   ],
+   [
+    0.6667,
+    "#5B3126"
+   ],
+   [
+    0.8333,
+    "#AA4F3F"
+   ],
+   [
+    1.0,
+    "#FF6F59"
+   ]
+  ]
+ },
+ "LIME_INK_PURPLE": {
+  "name": "Lime \u2013 ink \u2013 purple",
+  "desc": "Colour contrast from near to far: Lime \u2013 ink \u2013 purple (vathopy)",
+  "interpolation": "B_SPLINE",
+  "stops": [
+   [
+    0.0,
+    "#8E3FB8"
+   ],
+   [
+    0.1667,
+    "#62337B"
+   ],
+   [
+    0.3333,
+    "#3A2442"
+   ],
+   [
+    0.5,
+    "#16130F"
+   ],
+   [
+    0.6667,
+    "#414C1F"
+   ],
+   [
+    0.8333,
+    "#728E28"
+   ],
+   [
+    1.0,
+    "#A6D628"
+   ]
+  ]
+ },
+ "COBALT_INK_AMBER": {
+  "name": "Cobalt \u2013 ink \u2013 amber",
+  "desc": "Colour contrast from near to far: Cobalt \u2013 ink \u2013 amber (vathopy)",
+  "interpolation": "B_SPLINE",
+  "stops": [
+   [
+    0.0,
+    "#FF9A1F"
+   ],
+   [
+    0.1667,
+    "#A96923"
+   ],
+   [
+    0.3333,
+    "#5A3C1D"
+   ],
+   [
+    0.5,
+    "#16130F"
+   ],
+   [
+    0.6667,
+    "#1D2C4C"
+   ],
+   [
+    0.8333,
+    "#20448F"
+   ],
+   [
+    1.0,
+    "#1F5BD8"
+   ]
+  ]
+ },
+ "AMBER_PAPER_COBALT": {
+  "name": "Amber \u2013 paper \u2013 cobalt",
+  "desc": "Colour contrast from near to far: Amber \u2013 paper \u2013 cobalt (vathopy)",
+  "interpolation": "B_SPLINE",
+  "stops": [
+   [
+    0.0,
+    "#1F4FC4"
+   ],
+   [
+    0.1667,
+    "#6388D3"
+   ],
+   [
+    0.3333,
+    "#AABBDD"
+   ],
+   [
+    0.5,
+    "#F4EEE2"
+   ],
+   [
+    0.6667,
+    "#F6CEA9"
+   ],
+   [
+    0.8333,
+    "#F4AD6D"
+   ],
+   [
+    1.0,
+    "#F08A12"
+   ]
+  ]
+ },
+ "GOLD_PAPER_VIOLET": {
+  "name": "Gold \u2013 paper \u2013 violet",
+  "desc": "Colour contrast from near to far: Gold \u2013 paper \u2013 violet (vathopy)",
+  "interpolation": "B_SPLINE",
+  "stops": [
+   [
+    0.0,
+    "#5A2FB8"
+   ],
+   [
+    0.1667,
+    "#8675CB"
+   ],
+   [
+    0.3333,
+    "#BAB2D9"
+   ],
+   [
+    0.5,
+    "#F4EEE2"
+   ],
+   [
+    0.6667,
+    "#EED7AB"
+   ],
+   [
+    0.8333,
+    "#E7C06F"
+   ],
+   [
+    1.0,
+    "#E0A800"
+   ]
+  ]
+ },
+ "CORAL_PAPER_TEAL": {
+  "name": "Coral \u2013 paper \u2013 teal",
+  "desc": "Colour contrast from near to far: Coral \u2013 paper \u2013 teal (vathopy)",
+  "interpolation": "B_SPLINE",
+  "stops": [
+   [
+    0.0,
+    "#108A84"
+   ],
+   [
+    0.1667,
+    "#70ABA2"
+   ],
+   [
+    0.3333,
+    "#B3CCC2"
+   ],
+   [
+    0.5,
+    "#F4EEE2"
+   ],
+   [
+    0.6667,
+    "#FABFAD"
+   ],
+   [
+    0.8333,
+    "#F98E78"
+   ],
+   [
+    1.0,
+    "#F2563F"
+   ]
+  ]
+ },
+ "RED_TO_BLACK": {
+  "name": "Red to black",
+  "desc": "Near red, far black (vathopy)",
+  "interpolation": "LINEAR",
+  "stops": [
+   [
+    0.0,
+    "#000000"
+   ],
+   [
+    0.25,
+    "#1D0101"
+   ],
+   [
+    0.5,
+    "#590805"
+   ],
+   [
+    0.75,
+    "#9E1611"
+   ],
+   [
+    1.0,
+    "#E8261E"
+   ]
+  ]
+ },
+ "ORANGE_TO_BLACK": {
+  "name": "Orange to black",
+  "desc": "Near orange, far black (vathopy)",
+  "interpolation": "LINEAR",
+  "stops": [
+   [
+    0.0,
+    "#000000"
+   ],
+   [
+    0.25,
+    "#220A01"
+   ],
+   [
+    0.5,
+    "#632B04"
+   ],
+   [
+    0.75,
+    "#AE510E"
+   ],
+   [
+    1.0,
+    "#FF7A1A"
+   ]
+  ]
+ },
+ "YELLOW_TO_BLACK": {
+  "name": "Yellow to black",
+  "desc": "Near yellow, far black (vathopy)",
+  "interpolation": "LINEAR",
+  "stops": [
+   [
+    0.0,
+    "#000000"
+   ],
+   [
+    0.25,
+    "#221A01"
+   ],
+   [
+    0.5,
+    "#635006"
+   ],
+   [
+    0.75,
+    "#AE8E11"
+   ],
+   [
+    1.0,
+    "#FFD21F"
+   ]
+  ]
+ },
+ "GREEN_TO_BLACK": {
+  "name": "Green to black",
+  "desc": "Near green, far black (vathopy)",
+  "interpolation": "LINEAR",
+  "stops": [
+   [
+    0.0,
+    "#000000"
+   ],
+   [
+    0.25,
+    "#011705"
+   ],
+   [
+    0.5,
+    "#0C491E"
+   ],
+   [
+    0.75,
+    "#1D833B"
+   ],
+   [
+    1.0,
+    "#2FC25B"
+   ]
+  ]
+ },
+ "BLUE_TO_BLACK": {
+  "name": "Blue to black",
+  "desc": "Near blue, far black (vathopy)",
+  "interpolation": "LINEAR",
+  "stops": [
+   [
+    0.0,
+    "#000000"
+   ],
+   [
+    0.25,
+    "#010822"
+   ],
+   [
+    0.5,
+    "#0C2563"
+   ],
+   [
+    0.75,
+    "#1D46AE"
+   ],
+   [
+    1.0,
+    "#2F6BFF"
+   ]
+  ]
+ },
+ "PURPLE_TO_BLACK": {
+  "name": "Purple to black",
+  "desc": "Near purple, far black (vathopy)",
+  "interpolation": "LINEAR",
+  "stops": [
+   [
+    0.0,
+    "#000000"
+   ],
+   [
+    0.25,
+    "#0D031C"
+   ],
+   [
+    0.5,
+    "#321256"
+   ],
+   [
+    0.75,
+    "#5C2898"
+   ],
+   [
+    1.0,
+    "#8A3FE0"
+   ]
+  ]
+ },
+ "MAGENTA_TO_BLACK": {
+  "name": "Magenta to black",
+  "desc": "Near magenta, far black (vathopy)",
+  "interpolation": "LINEAR",
+  "stops": [
+   [
+    0.0,
+    "#000000"
+   ],
+   [
+    0.25,
+    "#220111"
+   ],
+   [
+    0.5,
+    "#630C3B"
+   ],
+   [
+    0.75,
+    "#AE1D6B"
+   ],
+   [
+    1.0,
+    "#FF2FA0"
+   ]
+  ]
+ },
+ "CYAN_TO_BLACK": {
+  "name": "Cyan to black",
+  "desc": "Near cyan, far black (vathopy)",
+  "interpolation": "LINEAR",
+  "stops": [
+   [
+    0.0,
+    "#000000"
+   ],
+   [
+    0.25,
+    "#01181C"
+   ],
+   [
+    0.5,
+    "#044C56"
+   ],
+   [
+    0.75,
+    "#0D8798"
+   ],
+   [
+    1.0,
+    "#19C8E0"
+   ]
+  ]
+ },
+ "TEAL_TO_BLACK": {
+  "name": "Teal to black",
+  "desc": "Near teal, far black (vathopy)",
+  "interpolation": "LINEAR",
+  "stops": [
+   [
+    0.0,
+    "#000000"
+   ],
+   [
+    0.25,
+    "#001210"
+   ],
+   [
+    0.5,
+    "#023F39"
+   ],
+   [
+    0.75,
+    "#087167"
+   ],
+   [
+    1.0,
+    "#12A89A"
+   ]
+  ]
+ },
+ "GOLD_TO_BLACK": {
+  "name": "Gold to black",
+  "desc": "Near gold, far black (vathopy)",
+  "interpolation": "LINEAR",
+  "stops": [
+   [
+    0.0,
+    "#000000"
+   ],
+   [
+    0.25,
+    "#1D1402"
+   ],
+   [
+    0.5,
+    "#594310"
+   ],
+   [
+    0.75,
+    "#9E7924"
+   ],
+   [
+    1.0,
+    "#E8B33A"
+   ]
+  ]
+ },
+ "COPPER_TO_BLACK": {
+  "name": "Copper to black",
+  "desc": "Near copper, far black (vathopy)",
+  "interpolation": "LINEAR",
+  "stops": [
+   [
+    0.0,
+    "#000000"
+   ],
+   [
+    0.25,
+    "#1B0902"
+   ],
+   [
+    0.5,
+    "#532811"
+   ],
+   [
+    0.75,
+    "#934C25"
+   ],
+   [
+    1.0,
+    "#D9733B"
+   ]
+  ]
+ },
+ "EMBER_TO_BLACK": {
+  "name": "Ember to black",
+  "desc": "Near yellow, through orange and deep red, far black: glowing coals (vathopy)",
+  "interpolation": "LINEAR",
+  "stops": [
+   [
+    0.0,
+    "#000000"
+   ],
+   [
+    0.1667,
+    "#2B0101"
+   ],
+   [
+    0.3333,
+    "#7A0A06"
+   ],
+   [
+    0.5,
+    "#AF290F"
+   ],
+   [
+    0.6667,
+    "#E8461A"
+   ],
+   [
+    0.8333,
+    "#F7892A"
+   ],
+   [
+    1.0,
+    "#FFC23A"
+   ]
+  ]
+ },
+ "ICE_TO_BLACK": {
+  "name": "Ice to black",
+  "desc": "Near pale ice, through cyan and navy, far black (vathopy)",
+  "interpolation": "LINEAR",
+  "stops": [
+   [
+    0.0,
+    "#000000"
+   ],
+   [
+    0.1667,
+    "#010A25"
+   ],
+   [
+    0.3333,
+    "#0B2A6B"
+   ],
+   [
+    0.5,
+    "#1166A0"
+   ],
+   [
+    0.6667,
+    "#1FA6D8"
+   ],
+   [
+    0.8333,
+    "#92CFEC"
+   ],
+   [
+    1.0,
+    "#E6F7FF"
+   ]
+  ]
+ }
+}
