@@ -25,6 +25,12 @@ extracted from Blender render exactly as before):
   off), so contours follow surfaces instead of depth noise.
 * ``equalize``: spread the ramp by pixel count (histogram equalisation of the depth), so each
   part of the ramp, and each contour level, covers about the same share of the picture.
+* ``focus``: the creative focus in plain depth terms, ``[{"depth": d, "width": w, "softness": s,
+  "strength": k}]`` with d, w and s as fractions of the ramp window (0 = far, 1 = near). Each
+  becomes an add-on Focus & Shape Band lying flat in the relief (normal 0,0,1) at that depth, so it
+  renders exactly like one placed in Blender. strength 1 lifts that depth to white, -1 sinks it to
+  black; with ``"base": "BLACK"`` the result is a white subject on black. ``"at": [x, y]`` instead of
+  ``depth`` picks the depth under that pixel (top-down pixel coordinates of the depth map).
 """
 
 import copy
@@ -51,9 +57,12 @@ DEFAULT_LOOK = {
     "supersample": 1,
     "smooth_depth": 0.0,
     "equalize": False,
+    "focus": [],
 }
 
 DEFAULT_CONTOURS = {"cycles": 4.0, "strength": 0.85, "width": 2.0}
+
+DEFAULT_FOCUS = {"depth": None, "at": None, "width": 0.1, "softness": 0.05, "strength": 1.0, "enabled": True}
 
 DEFAULT_CONTROL = {"center": 0.5, "offset": 0.0, "feather": 0.02, "from_min": None, "from_max": None}
 
@@ -131,6 +140,15 @@ def normalise(look):
         c["cycles"], c["strength"], c["width"] = float(c["cycles"]), float(c["strength"]), float(c["width"])
         if not c["cycles"] > 0 or not 0.0 <= c["strength"] <= 1.0 or not 0.0 < c["width"] <= 50.0:
             raise ValueError("contours: cycles must be > 0, strength 0..1 and width 0..50 px")
+    lk["focus"] = [_merge(DEFAULT_FOCUS, fo, f"focus[{i}]") for i, fo in enumerate(lk["focus"] or [])]
+    for i, fo in enumerate(lk["focus"]):
+        if (fo["depth"] is None) == (fo["at"] is None):
+            raise ValueError(f"focus[{i}]: give either depth (0-1) or at ([x, y] pixels)")
+        if fo["depth"] is not None and not 0.0 <= float(fo["depth"]) <= 1.0:
+            raise ValueError(f"focus[{i}].depth must be 0 (far) to 1 (near)")
+        if not (0.0 <= float(fo["width"]) <= 1.0 and 0.0 <= float(fo["softness"]) <= 1.0
+                and -1.0 <= float(fo["strength"]) <= 1.0):
+            raise ValueError(f"focus[{i}]: width and softness must be 0-1, strength -1 to 1")
     if lk["tilt"] is not None:
         lk["tilt"] = _merge({"normal": [0.0, 1.0, 0.0], "x0": 0.0, "y0": 0.0, "fit": False}, lk["tilt"], "tilt")
     return lk

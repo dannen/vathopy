@@ -1222,5 +1222,32 @@
     "#E6F7FF"
    ]
   ]
+ },
+ "MIST": {
+  "name": "Mist",
+  "desc": "Near dark, distance pale like mist: a soft, lifted far end (vathopy)",
+  "interpolation": "LINEAR",
+  "stops": [
+   [
+    0.0,
+    "#EDECE8"
+   ],
+   [
+    0.3,
+    "#CFCECA"
+   ],
+   [
+    0.65,
+    "#77777A"
+   ],
+   [
+    0.88,
+    "#2E2E30"
+   ],
+   [
+    1.0,
+    "#121212"
+   ]
+  ]
  }
 }

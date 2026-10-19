@@ -1,6 +1,8 @@
 # vathopy
 
-Vathography pictures from depth maps, without Blender.
+Vathography pictures from depth maps, without Blender. [Vathography](https://vathography.com/) is a practice
+by Karim Joseph Nassar: a photograph's inferred depth becomes the artwork, with a *creative focus* deciding
+which distances become the subject.
 
 `vathopy` is a Python port of the picture maths of the free **Vathography** Blender add-on
 (v1.0.95, © 2026 Karim Joseph Nassar). It covers the colour ramp, the depth controls, the ramp
@@ -36,12 +38,39 @@ vathopy render photo_depth.exr -l my_look.json -o photo_vathograph.png
 # Batch: several inputs into a folder; override the ramp without editing the look.
 vathopy render shots/*_depth.exr -l my_look.json --preset VERMILION_INK_CYAN -o out/
 
-vathopy presets    # 40 ramp presets: the add-on's 19, 8 complementary palettes, 13 colour-to-black
+vathopy presets    # 41 ramp presets: the add-on's 19, 8 complementary palettes, 13 colour-to-black, MIST
 ```
+
+### Creative focus
+
+Pick the distances that become the subject. Each `--focus` lifts one depth to white (or sinks it to black):
+
+```bash
+vathopy render depth.exr --base BLACK --focus 0.55:0.04:0.03 -o out/      # a white subject on black
+vathopy render depth.exr --base BLACK --focus @410,480 -o out/            # the depth under pixel (410, 480)
+vathopy render depth.exr --preset MIST --focus @410,480 -o out/           # lifted out of a misty gradient
+vathopy render depth.exr --base BLACK --focus @410,480 --focus 0.9:0.1:0.05:0.6 -o out/   # several distances, the second at 60%
+vathopy render depth.exr --base WHITE --focus 0.8:0.15 --focus-strength -1 -o out/   # black on white
+```
+
+![Focus: white on black, out of mist, two distances, black on white](examples/twilight/focus.jpg)
+
+- **`--focus DEPTH[:WIDTH[:SOFTNESS[:STRENGTH]]]`**: DEPTH is a fraction of the depth range (0 = far, 1 = near),
+  WIDTH the range that's fully in focus and SOFTNESS the fade on each side, as fractions too (default 0.1 and
+  0.05). STRENGTH (-1 to 1) sets that focus alone. `@X,Y` instead of DEPTH takes the depth under that pixel
+  (top-down coordinates of the depth map). Repeat `--focus` for several distances.
+- **`--base`** sets what the focus sits on: `RAMP` (default, the palette), `BLACK` or `WHITE`.
+- **`--focus-strength K`** (-1 to 1, default 1) for every focus without its own STRENGTH: 1 lifts to white, -1
+  sinks to black, in between is partial.
+- **`MIST`** is a ramp for the third kind of focus: near dark, distance pale like mist.
+
+Each focus is the add-on's own Focus & Shape Band, laid flat in the relief at that depth, so it renders
+exactly like one placed in Blender. Look key: `"focus": [{"depth": 0.55, "width": 0.04, "softness": 0.03}]`
+(or `"at": [x, y]`), plus `"strength"`.
 
 ### Cycles and contour lines
 
-Two render options that the add-on doesn't have (`N` is 1 to 10 in steps of 0.5):
+Two render options that the add-on doesn't have (`N` is 1 to 10 in steps of 0.25):
 
 ```bash
 vathopy render depth.exr --cycles 4 -o out/                                  # black/white 4-cycle fringe
@@ -85,7 +114,10 @@ A small local web app (Python standard library server + one HTML page, no extra 
 
 - **Depth map:** picks from the `.exr` files in `--depth-dir` (default `~/Pictures/vathography/depth`, raw Marigold output); each is prepped (`--kind near-bright`) once and kept in memory.
 - **Palette:** swatches of all presets plus the black/white fringe ramp, with **Invert** (mirror the ramp) and **Equalize**.
-- **Sliders:** cycles and contour lines (0 = off, 0.5 steps), line darkness and width, smoothing and anti-aliasing.
+- **Sliders:** cycles and contour lines (0 = off, 0.25 steps), line darkness and width, smoothing and anti-aliasing.
+- **Focus:** choose a style (white on black, black on white, or lift/sink over the palette), press **Pick a depth**
+  and click the picture: that distance becomes a focus with depth, width, softness and strength sliders, so a
+  second distance can come forward less than the subject. Shift-click to keep picking, up to four.
 - **Speed:** while a slider moves, a fast preview renders (no anti-aliasing, at most `--preview-size` px, typically 50–100 ms); on release, the full-quality render (about 0.2–0.7 s at ~1200 px). Smoothing is computed once per radius. Click the picture for 100% view.
 - **Auto (probe):** sets smoothing and the cycle or contour count to the most the map carries cleanly (see Probing below).
 - **Looks:** **Save** writes the full-quality 16-bit PNG to `--favourites` (default `~/Pictures/vathography/favorites`, never overwriting) and the look to `looks/<name>.json`; saved looks load back into the controls, and `vathopy render -l looks/<name>.json` reproduces the PNG exactly.
@@ -196,6 +228,14 @@ add-on's template file.
 * Prefer float EXR or 16-bit PNG depth maps; 8-bit maps show stepped bands (the CLI warns).
 * `prep` clips at the 0.1/99.9 percentiles so a few stray pixels can't flatten the ramp, and
   fills NaN/inf as farthest. The add-on itself uses the raw min/max and would fail on NaN.
+
+## Credits
+
+- **Vathography**, the practice and the free Blender add-on this ports, by Karim Joseph Nassar:
+  [vathography.com](https://vathography.com/), [doi:10.5281/zenodo.23103262](https://doi.org/10.5281/zenodo.23103262).
+- **Marigold V2** (Apache-2.0), the depth model the practice is built on:
+  [huawei-bayerlab/marigold-v2](https://github.com/huawei-bayerlab/marigold-v2).
+- The example depth maps were estimated from film stills with Marigold V2.
 
 ## Licence
 

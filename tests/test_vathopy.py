@@ -18,7 +18,7 @@ def depth_field(h=90, w=120):
 
 
 def test_presets_all_load():
-    assert len(PRESETS) == 40  # the add-on's 19 + vathopy's 8 complementary and 13 colour-to-black
+    assert len(PRESETS) == 41  # the add-on's 19 + vathopy's 8 complementary, 13 colour-to-black and MIST
     for k in PRESETS:
         r = preset(k)
         v = r.evaluate(np.linspace(0, 1, 11))
@@ -165,12 +165,51 @@ def test_cycles_and_contours_validated():
         vathopy.normalise_look({"contours": {"cycles": 3, "width": 0}})
     with pytest.raises(ValueError):
         vathopy.normalise_look({"contours": {"cycles": 3, "width": 51}})
-    from vathopy.cli import half_steps
+    from vathopy.cli import quarter_steps
     import argparse
-    assert half_steps("2.5") == 2.5
-    for bad in ("0.5", "10.5", "2.25"):
+    assert quarter_steps("2.5") == 2.5 and quarter_steps("2.25") == 2.25
+    for bad in ("0.5", "10.25", "2.1"):
         with pytest.raises(argparse.ArgumentTypeError):
-            half_steps(bad)
+            quarter_steps(bad)
+
+
+def test_focus_is_a_flat_band_at_that_depth():
+    d = np.tile(np.linspace(0, 1, 200, dtype=np.float32), (20, 1))          # far left .. near right
+    lk = {"ramp": {"preset": "WHITE_TO_BLACK"}, "base": "BLACK",
+          "focus": [{"depth": 0.5, "width": 0.1, "softness": 0.05}]}
+    out, info = vathopy.render(d, lk)
+    row = out[10, :, 0]
+    assert info["terms"] == 1
+    assert row[100] == pytest.approx(1.0, abs=1e-5)                          # in focus: white
+    assert row[20] == pytest.approx(0.0, abs=1e-6) and row[180] == pytest.approx(0.0, abs=1e-6)  # black
+    assert 0.0 < row[85] < 1.0                                              # the soft edge
+    # exactly the add-on band it stands for: flat, at the relief height of that depth
+    s_eff, mid = 4.0, 0.5
+    band = {"normal": [0, 0, 1], "center": [0, 0, (0.5 - mid) * s_eff], "width": 0.1 * s_eff, "softness": 0.05 * s_eff}
+    ref, _ = vathopy.render(d, {"ramp": lk["ramp"], "base": "BLACK", "bands": [band]})
+    assert np.array_equal(out, ref)
+    # strength -1 on a white base: a black subject on white
+    out2, _ = vathopy.render(d, dict(lk, base="WHITE", focus=[dict(lk["focus"][0], strength=-1.0)]))
+    assert out2[10, 100, 0] == pytest.approx(0.0, abs=1e-5) and out2[10, 20, 0] == pytest.approx(1.0, abs=1e-5)
+
+
+def test_focus_at_a_pixel_and_validation():
+    d = np.tile(np.linspace(0, 1, 200, dtype=np.float32), (20, 1))
+    at, _ = vathopy.render(d, {"base": "BLACK", "focus": [{"at": [150, 5], "width": 0.05, "softness": 0.02}]})
+    by_depth, _ = vathopy.render(d, {"base": "BLACK", "focus": [{"depth": 150 / 199, "width": 0.05, "softness": 0.02}]})
+    assert np.allclose(at, by_depth, atol=1e-4)
+    for bad in ({}, {"depth": 0.5, "at": [1, 1]}, {"depth": 1.5}, {"depth": 0.5, "strength": 2}):
+        with pytest.raises(ValueError):
+            vathopy.normalise_look({"focus": [bad]})
+    from vathopy.cli import focus_spec
+    import argparse
+    assert focus_spec("0.8") == {"depth": 0.8}
+    assert focus_spec("0.8:0.1:0.05") == {"depth": 0.8, "width": 0.1, "softness": 0.05}
+    assert focus_spec("@10,20:0.2") == {"at": [10.0, 20.0], "width": 0.2}
+    assert focus_spec("0.8:0.1:0.05:-0.6") == {"depth": 0.8, "width": 0.1, "softness": 0.05, "strength": -0.6}
+    for bad in ("x", "1.5", "@10", "0.5:0.1:0.1:0.1:0.1", "0.5:0.1:0.1:2"):
+        with pytest.raises(argparse.ArgumentTypeError):
+            focus_spec(bad)
 
 
 
@@ -294,13 +333,15 @@ def test_gui_settings_round_trip_and_api(tmp_path):
     from vathopy import gui
     # settings -> look -> settings
     s = {"palette": "EMBER_TO_BLACK", "invert": True, "equalize": True, "cycles": 2.5, "contours": 6,
-         "contour_strength": 0.5, "contour_width": 3, "smooth": 4, "supersample": 3}
+         "contour_strength": 0.5, "contour_width": 3, "smooth": 4, "supersample": 3,
+         "focus_style": "black_on_white", "focus": [{"depth": 0.4, "width": 0.08, "softness": 0.04, "strength": 0.6}]}
     lk = gui.look_from_settings(s)
     lk["smooth_depth"] = 4.0
     back = gui.settings_from_look(lk)
     for k in s:
         assert back[k] == s[k], k
     assert gui.look_from_settings(s, preview=True)["supersample"] == 1
+    assert lk["base"] == "WHITE" and lk["focus"][0]["strength"] == -0.6     # the style sets the sign
     assert len(gui.palettes()) == len(PRESETS) + 1
     assert gui._safe_name("a b/../c") == "a_b_c"
     # the server: list, render, refuse paths outside its folder
@@ -322,6 +363,8 @@ def test_gui_settings_round_trip_and_api(tmp_path):
         code, body = post("/api/render", {"map": "d.exr", "settings": s, "quality": "preview"})
         assert code == 200 and body[:8] == b"\x89PNG\r\n\x1a\n"
         assert post("/api/render", {"map": "../d.exr", "settings": s, "quality": "full"})[0] == 400
+        code, body = post("/api/depth_at", {"map": "d.exr", "settings": s, "x": 0.5, "y": 0.0})
+        assert code == 200 and json.loads(body)["depth"] > 0.9               # top row = near (bright)
         code, body = post("/api/save", {"map": "d.exr", "settings": s, "name": "my look"})
         assert code == 200 and (tmp_path / "fav" / "looks" / "my_look.json").exists()
         saved = json.loads(body)
@@ -361,3 +404,6 @@ def test_cli(tmp_path):
     run("render", str(tmp_path / "depth.exr"), "-l", str(look), "-o", str(tmp_path / "out.png"))
     assert (tmp_path / "out.png").exists()
     assert json.loads(look.read_text())["ramp"] == {"preset": "FRINGE_3_BW"}
+    r = run("render", str(tmp_path / "depth.exr"), "--preset", "MIST", "--base", "BLACK", "--focus", "@32,24:0.1",
+            "--focus", "0.9:0.1:0.05:0.5", "-o", str(tmp_path))
+    assert (tmp_path / "depth_mist_focus.png").exists() and "2 band/area term(s)" in r.stdout

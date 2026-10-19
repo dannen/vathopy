@@ -46,6 +46,11 @@
   #view { max-width: 100%; max-height: 100vh; display: block; image-rendering: auto; cursor: zoom-in; }
   main.actual { align-items: flex-start; justify-content: flex-start; }
   main.actual #view { max-width: none; max-height: none; cursor: zoom-out; }
+  main #view.picking { cursor: crosshair; }
+  button.ghost[aria-pressed=true] { border-color: var(--accent); color: var(--focus); }
+  .band { border: 1px solid var(--line); border-radius: 8px; padding: 2px 8px 8px; margin-top: 8px; }
+  .band .head { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; color: var(--dim); }
+  .band .head button { background: none; border: 0; color: var(--dim); cursor: pointer; font: inherit; padding: 2px 4px; }
   #empty { color: var(--dim); }
   @media (max-width: 720px) {
     .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; height: auto; }
@@ -70,13 +75,26 @@
 
     <h2>Shape</h2>
     <div class="row"><label for="cycles">Cycles</label><output id="cycles_v"></output>
-      <input type="range" id="cycles" min="0" max="10" step="0.5" value="4"></div>
+      <input type="range" id="cycles" min="0" max="10" step="0.25" value="4"></div>
     <div class="row"><label for="contours">Contour lines</label><output id="contours_v"></output>
-      <input type="range" id="contours" min="0" max="10" step="0.5" value="0"></div>
+      <input type="range" id="contours" min="0" max="10" step="0.25" value="0"></div>
     <div class="row"><label for="contour_strength">Line darkness</label><output id="contour_strength_v"></output>
       <input type="range" id="contour_strength" min="0" max="1" step="0.05" value="0.85"></div>
     <div class="row"><label for="contour_width">Line width (px)</label><output id="contour_width_v"></output>
       <input type="range" id="contour_width" min="0.5" max="8" step="0.5" value="2"></div>
+
+    <h2>Focus</h2>
+    <select id="focus_style" aria-label="Focus style">
+      <option value="off">Off</option>
+      <option value="white_on_black">White on black</option>
+      <option value="black_on_white">Black on white</option>
+      <option value="light">Lift over the palette</option>
+      <option value="dark">Sink over the palette</option>
+    </select>
+    <div class="inline"><button class="ghost" id="pick" aria-pressed="false"
+      title="Then click the picture: that depth becomes a focus (up to 4). Shift-click to keep picking.">Pick a depth</button>
+      <span class="note" id="focus_note"></span></div>
+    <div id="bands"></div>
 
     <h2>Quality</h2>
     <div class="row"><label for="smooth">Smoothing (px)</label><output id="smooth_v"></output>
@@ -109,8 +127,41 @@ const fmt = {
   supersample: (v) => (+v === 1 ? "off" : `${v}×`),
 };
 
+// Focus bands: [{depth, width, softness}], fractions of the depth range (0 = far, 1 = near).
+let bands = [];
+const bandSliders = [["depth", "Depth", 0, 1, 0.005], ["width", "Width", 0, 0.5, 0.005], ["softness", "Softness", 0, 0.3, 0.005],
+                     ["strength", "Strength", 0, 1, 0.05]];
+function buildBands() {
+  const box = $("bands");
+  box.innerHTML = "";
+  bands.forEach((b, i) => {
+    const div = document.createElement("div");
+    div.className = "band";
+    div.innerHTML = `<div class="head"><span>Focus ${i + 1}</span><button type="button" title="Remove">✕</button></div>`;
+    div.querySelector("button").onclick = () => { bands.splice(i, 1); buildBands(); full(); };
+    for (const [key, label, min, max, step] of bandSliders) {
+      const row = document.createElement("div");
+      row.className = "row";
+      row.innerHTML = `<label></label><output></output><input type="range" min="${min}" max="${max}" step="${step}">`;
+      row.querySelector("label").textContent = label;
+      const input = row.querySelector("input"), out = row.querySelector("output");
+      b[key] ??= 1;                                   // strength, for looks saved before it existed
+      input.value = b[key]; out.textContent = (+b[key]).toFixed(key === "strength" ? 2 : 3);
+      input.setAttribute("aria-label", `Focus ${i + 1} ${label}`);
+      input.addEventListener("input", () => {
+        b[key] = +input.value; out.textContent = (+input.value).toFixed(key === "strength" ? 2 : 3); preview();
+      });
+      input.addEventListener("change", full);
+      div.appendChild(row);
+    }
+    box.appendChild(div);
+  });
+  $("focus_note").textContent = bands.length ? "" : "then click the picture";
+}
+
 function settings() {
-  const s = { palette, invert: $("invert").checked, equalize: $("equalize").checked };
+  const s = { palette, invert: $("invert").checked, equalize: $("equalize").checked,
+              focus_style: $("focus_style").value, focus: bands };
   for (const k of sliders) s[k] = parseFloat($(k).value);
   return s;
 }
@@ -186,6 +237,7 @@ async function init() {
   $("folder").textContent = maps.folder;
   for (const m of maps.maps) $("map").add(new Option(m, m));
   buildSwatches(pals);
+  buildBands();
   showValues();
   await loadLooks();
   if (maps.maps.length) full(); else $("empty").textContent = "No depth maps (.exr) in " + maps.folder;
@@ -197,7 +249,25 @@ for (const k of sliders) {
 }
 for (const k of ["invert", "equalize"]) $(k).addEventListener("change", full);
 $("map").addEventListener("change", () => { $("probe").textContent = ""; full(); });
-$("view").addEventListener("click", () => $("stage").classList.toggle("actual"));
+$("view").addEventListener("click", async (ev) => {
+  if ($("pick").getAttribute("aria-pressed") !== "true") { $("stage").classList.toggle("actual"); return; }
+  const r = $("view").getBoundingClientRect();
+  const x = (ev.clientX - r.left) / r.width, y = (ev.clientY - r.top) / r.height;
+  if (!ev.shiftKey) setPicking(false);
+  try {
+    const j = await getJSON("/api/depth_at", { map: $("map").value, settings: settings(), x, y });
+    if (bands.length >= 4) bands.shift();
+    bands.push({ depth: +j.depth.toFixed(3), width: 0.08, softness: 0.04, strength: 1 });
+    if ($("focus_style").value === "off") $("focus_style").value = "white_on_black";
+    buildBands(); full();
+  } catch (e) { $("focus_note").textContent = "pick failed: " + e.message; }
+});
+function setPicking(on) {
+  $("pick").setAttribute("aria-pressed", on);
+  $("view").classList.toggle("picking", on);
+}
+$("pick").onclick = () => setPicking($("pick").getAttribute("aria-pressed") !== "true");
+$("focus_style").addEventListener("change", full);
 
 $("auto").onclick = async () => {
   $("probe").textContent = "probing…";
@@ -221,6 +291,8 @@ $("looks").onchange = async () => {
     selectPalette(s.palette);
     $("invert").checked = s.invert; $("equalize").checked = s.equalize;
     for (const k of sliders) $(k).value = s[k] ?? $(k).value;
+    $("focus_style").value = s.focus_style || "off";
+    bands = (s.focus || []).map((b) => ({ ...b })); buildBands();
     showValues(); $("name").value = name; full();
   } catch (e) { $("saved").textContent = "load failed: " + e.message; }
 };

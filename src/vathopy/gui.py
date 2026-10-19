@@ -39,13 +39,16 @@ import numpy as np
 
 from . import io as VIO
 from . import look as LOOK
-from .engine import render, smooth_depth
+from .engine import focus_depth_at, render, smooth_depth
 from .probe import probe
 from .ramp import PRESETS, Ramp
 
 HTML = Path(__file__).with_name("gui.html")
 FRINGE = "FRINGE"  # the black/white EASE ramp that --cycles uses with no preset
 FRINGE_RAMP = {"stops": [[0.0, [0.0, 0.0, 0.0, 1.0]], [1.0, [1.0, 1.0, 1.0, 1.0]]], "interpolation": "EASE"}
+# Focus styles: (look base, band strength).
+FOCUS_STYLES = {"white_on_black": ("BLACK", 1.0), "black_on_white": ("WHITE", -1.0),
+                "light": ("RAMP", 1.0), "dark": ("RAMP", -1.0)}
 
 
 def _srgb8(lin):
@@ -88,6 +91,13 @@ def look_from_settings(s, preview=False):
         lk["contours"] = {"cycles": contours, "strength": float(s.get("contour_strength", 0.85)),
                           "width": float(s.get("contour_width", 2.0))}
     lk["supersample"] = 1 if preview else int(s.get("supersample", 1))
+    style = s.get("focus_style", "off")
+    if style != "off" and s.get("focus"):
+        if style not in FOCUS_STYLES:
+            raise ValueError(f"unknown focus style {style!r}")
+        lk["base"], sign = FOCUS_STYLES[style]           # each focus's strength slider is 0-1; the style sets the sign
+        lk["focus"] = [{"depth": float(fo["depth"]), "width": float(fo["width"]), "softness": float(fo["softness"]),
+                        "strength": sign * min(max(float(fo.get("strength", 1.0)), 0.0), 1.0)} for fo in s["focus"][:4]]
     return LOOK.normalise(lk)
 
 
@@ -104,7 +114,19 @@ def settings_from_look(lk):
     return {"palette": palette, "invert": invert, "cycles": lk.get("cycles") or 0,
             "contours": c.get("cycles", 0), "contour_strength": c.get("strength", 0.85),
             "contour_width": c.get("width", 2.0), "smooth": lk.get("smooth_depth", 0),
-            "supersample": lk.get("supersample", 1), "equalize": bool(lk.get("equalize"))}
+            "supersample": lk.get("supersample", 1), "equalize": bool(lk.get("equalize")),
+            **_focus_settings(lk)}
+
+
+def _focus_settings(lk):
+    focus = [fo for fo in lk.get("focus") or [] if fo.get("depth") is not None]
+    if not focus:
+        return {"focus_style": "off", "focus": []}
+    key = (lk.get("base", "RAMP"), 1.0 if float(focus[0].get("strength", 1.0)) >= 0 else -1.0)
+    style = next((k for k, v in FOCUS_STYLES.items() if v == key), "light")
+    return {"focus_style": style, "focus": [{"depth": fo["depth"], "width": fo.get("width", 0.1),
+                                             "softness": fo.get("softness", 0.05),
+                                             "strength": abs(float(fo.get("strength", 1.0)))} for fo in focus]}
 
 
 class Maps:
@@ -232,6 +254,12 @@ def make_handler(maps, favourites, preview_size, auth=None):
                     pr = probe(d, smooth=None if s.get("smooth_auto") else float(s.get("smooth", 0) or 0),
                                equalize=bool(s.get("equalize")))
                     return self._send(200, pr)
+                if path == "/api/depth_at":
+                    s = req.get("settings", {})
+                    d = maps.depth(req["map"], float(s.get("smooth", 0) or 0))
+                    h, w = d.shape
+                    x, y = float(req["x"]), float(req["y"])           # fractions of the picture, top-down
+                    return self._send(200, {"depth": focus_depth_at(d, look_from_settings(s), x * w, y * h)})
                 if path == "/api/save":
                     return self._save(req)
                 if path == "/api/look":

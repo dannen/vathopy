@@ -15,7 +15,7 @@ import numpy as np
 
 from . import par as PAR
 from . import remap
-from .look import normalise
+from .look import DEFAULT_BAND, _merge, normalise
 from .ramp import Ramp, apply_lut
 
 # constants from the add-on (common.py / shading.py)
@@ -476,6 +476,39 @@ def remapped(depth, lk):
     return np.asarray(PAR.map_rows(lambda r0, r1: remap.transfer(d[r0:r1], **args), d.shape[0]), dtype=np.float32)
 
 
+def _window(f, lk):
+    if lk["window"] == "auto":
+        lo, hi = float(f.min()), float(f.max())
+    else:
+        lo, hi = float(lk["window"][0]), float(lk["window"][1])
+    return lo, (hi if hi - lo >= 1e-6 else lo + 1e-6)
+
+
+def focus_depth_at(depth, lk, x, y, r=2):
+    """The focus depth (0 = far .. 1 = near over the ramp window) under pixel (x, y), top-down
+    coordinates; the median of a (2r+1)^2 patch, so one noisy pixel can't throw it."""
+    f = remapped(depth, lk)
+    lo, hi = _window(f, lk)
+    h, w = f.shape
+    x, row = min(max(int(round(x)), 0), w - 1), min(max(h - 1 - int(round(y)), 0), h - 1)
+    v = float(np.median(f[max(row - r, 0):row + r + 1, max(x - r, 0):x + r + 1]))
+    return min(max((v - lo) / (hi - lo), 0.0), 1.0)
+
+
+def focus_bands(focus, lo, hi, s_eff, mid):
+    """The look's ``focus`` entries as add-on bands: flat (normal 0,0,1) at the relief height of
+    that depth, width and softness scaled from fractions of the window to metres."""
+    span = (hi - lo) * s_eff
+    out = []
+    for i, fo in enumerate(focus):
+        z = (lo + float(fo["depth"]) * (hi - lo) - mid) * s_eff
+        out.append(_merge(DEFAULT_BAND, {"id": f"focus{i + 1}", "name": f"focus{i + 1}", "enabled": bool(fo["enabled"]),
+                                         "strength": float(fo["strength"]), "normal": [0.0, 0.0, 1.0],
+                                         "center": [0.0, 0.0, z], "width": float(fo["width"]) * span,
+                                         "softness": float(fo["softness"]) * span}, "focus"))
+    return out
+
+
 def pingpong(x, cycles):
     """Fold 0..1 positions so a ramp runs there and back `cycles` times (vathopy's ``cycles``):
     position 0 stays 0, and each half-cycle alternates forward and backward."""
@@ -548,6 +581,9 @@ def render(depth, look):
         raise ValueError("depth contains NaN or infinite values (use `vathopy prep` to clean it)")
     if lk["smooth_depth"] > 0:
         depth = smooth_depth(depth, lk["smooth_depth"])
+    if any(fo["at"] is not None for fo in lk["focus"]):
+        lk = dict(lk, focus=[dict(fo, depth=focus_depth_at(depth, lk, *fo["at"]), at=None) if fo["at"] is not None
+                             else fo for fo in lk["focus"]])
     ss = lk["supersample"]
     if ss <= 1:
         out, info = _render(depth, lk)
@@ -577,12 +613,9 @@ def _render(depth, lk):
     mid = float(lk["plane"]["midlevel"])
 
     f = remapped(depth, lk)
-    if lk["window"] == "auto":
-        lo, hi = float(f.min()), float(f.max())
-    else:
-        lo, hi = float(lk["window"][0]), float(lk["window"][1])
-    if hi - lo < 1e-6:
-        hi = lo + 1e-6
+    lo, hi = _window(f, lk)
+    if lk["focus"]:
+        lk = dict(lk, bands=lk["bands"] + focus_bands(lk["focus"], lo, hi, s_eff, mid))
     tilt = resolve_tilt(lk["tilt"], lo, hi, s_eff, mid, pw, ph)
     px, py = plane_pixel_xy(pw, ph, h_, w_)
 

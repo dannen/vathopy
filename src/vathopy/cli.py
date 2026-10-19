@@ -38,22 +38,41 @@ def cmd_prep(a):
 FRINGE_RAMP = {"stops": [[0.0, [0.0, 0.0, 0.0, 1.0]], [1.0, [1.0, 1.0, 1.0, 1.0]]], "interpolation": "EASE"}
 
 
-def half_steps(text):
-    """argparse type: 1 to 10 in steps of 0.5."""
+def quarter_steps(text):
+    """argparse type: 1 to 10 in steps of 0.25."""
     v = float(text)
-    if not (1.0 <= v <= 10.0 and (v * 2).is_integer()):
-        raise argparse.ArgumentTypeError("must be 1 to 10 in steps of 0.5 (1, 1.5, 2, ... 10)")
+    if not (1.0 <= v <= 10.0 and (v * 4).is_integer()):
+        raise argparse.ArgumentTypeError("must be 1 to 10 in steps of 0.25 (1, 1.25, 1.5, ... 10)")
     return v
 
 
-def half_steps_or_auto(text):
-    """argparse type: 'auto' (probe the depth map) or 1 to 10 in steps of 0.5."""
+def quarter_steps_or_auto(text):
+    """argparse type: 'auto' (probe the depth map) or 1 to 10 in steps of 0.25."""
     if text == "auto":
         return text
     try:
-        return half_steps(text)
+        return quarter_steps(text)
     except ValueError:
-        raise argparse.ArgumentTypeError("must be 'auto' or 1 to 10 in steps of 0.5") from None
+        raise argparse.ArgumentTypeError("must be 'auto' or 1 to 10 in steps of 0.25") from None
+
+
+def focus_spec(text):
+    """argparse type: DEPTH[:WIDTH[:SOFTNESS[:STRENGTH]]] (fractions of the depth range, 0 = far,
+    1 = near; strength -1 to 1) or @X,Y[:...] (the depth under that pixel, top-down)."""
+    head, *rest = text.split(":")
+    try:
+        fo = {"at": [float(v) for v in head[1:].split(",")]} if head.startswith("@") else {"depth": float(head)}
+        if "at" in fo and len(fo["at"]) != 2:
+            raise ValueError
+        for key, v in zip(("width", "softness", "strength"), rest):
+            fo[key] = float(v)
+        if len(rest) > 3:
+            raise ValueError
+        LOOK.normalise({"focus": [fo]})
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            "must be DEPTH[:WIDTH[:SOFTNESS[:STRENGTH]]] (e.g. 0.8:0.1:0.05:0.6) or @X,Y[:...] (a pixel)") from None
+    return fo
 
 
 def radius_or_auto(text):
@@ -90,6 +109,8 @@ def _look_from_args(a):
         lk["equalize"] = True
     if a.window:
         lk["window"] = "auto" if a.window == "auto" else [float(v) for v in a.window.split(",")]
+    if a.focus:
+        lk["focus"] = [{"strength": a.focus_strength, **fo} for fo in a.focus]   # a 4th field wins
     if a.base:
         lk["base"] = a.base
     return LOOK.normalise(lk)
@@ -138,6 +159,8 @@ def cmd_render(a):
         suffix += "_autocyc" if a.cycles == "auto" else f"_{a.cycles:g}cyc"
     if a.contours is not None:
         suffix += "_autocontours" if a.contours == "auto" else f"_{a.contours:g}contours"
+    if a.focus:
+        suffix += "_focus"
     for src in a.inputs:
         depth, info = VIO.load_depth(src)
         if info["eight_bit"]:
@@ -195,13 +218,13 @@ def main(argv=None):
     r.add_argument("--preset", choices=list(PRESETS), help="override the look's ramp with a preset")
     r.add_argument("--window", help="'auto' or 'lo,hi' to override the look's ramp window")
     r.add_argument("--base", choices=LOOK.BASES, help="override what bands/areas sit on")
-    r.add_argument("--cycles", type=half_steps_or_auto, metavar="N",
-                   help="repeat the ramp N times across the depth (1-10 in steps of 0.5, or 'auto' "
+    r.add_argument("--cycles", type=quarter_steps_or_auto, metavar="N",
+                   help="repeat the ramp N times across the depth (1-10 in steps of 0.25, or 'auto' "
                         "to probe each depth map); with no --preset or look ramp this is the "
                         "black/white N-cycle fringe")
-    r.add_argument("--contours", type=half_steps_or_auto, metavar="N",
+    r.add_argument("--contours", type=quarter_steps_or_auto, metavar="N",
                    help="draw dark contour lines at N even steps through the depth (1-10 in steps of "
-                        "0.5, or 'auto' to probe each depth map) over the ramp's colours")
+                        "0.25, or 'auto' to probe each depth map) over the ramp's colours")
     r.add_argument("--contour-strength", type=float, default=0.85, metavar="S",
                    help="how dark the contour lines are, 0-1 (default 0.85)")
     r.add_argument("--contour-width", type=float, default=2.0, metavar="PX",
@@ -216,6 +239,14 @@ def main(argv=None):
     r.add_argument("--equalize", action="store_true",
                    help="spread the ramp by pixel count, so each colour band and contour level covers "
                         "about the same share of the picture")
+    r.add_argument("--focus", type=focus_spec, action="append", metavar="SPEC",
+                   help="creative focus: lift one depth to white. DEPTH[:WIDTH[:SOFTNESS[:STRENGTH]]] as "
+                        "fractions of the depth range (0 = far, 1 = near; default width 0.1, softness 0.05; "
+                        "strength -1 to 1, default --focus-strength), or @X,Y[:...] for the depth under "
+                        "that pixel. Repeat for several distances. With --base BLACK: a white subject on black")
+    r.add_argument("--focus-strength", type=float, default=1.0, metavar="K",
+                   help="-1 to 1 (default 1) for every --focus without its own STRENGTH: 1 lifts the "
+                        "focus to white, -1 sinks it to black (use with --base WHITE for black on white)")
     r.set_defaults(fn=cmd_render)
 
     pb = sub.add_parser("probe", help="measure a depth map and recommend contour/cycle/smoothing settings")

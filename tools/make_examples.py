@@ -166,6 +166,25 @@ def main():
     print(f"twilight4 probe: spread {p['spread']:.2f}, wobble {p['wobble']:.4f}, "
           f"contours {n:g} -> {pe['contours']:g} with equalize")
 
+    # Creative focus: one or more depths lifted out (pixel picks, like clicking in the GUI).
+    def at(m, fx, fy):
+        h, w = d[m].shape
+        return [fx * w, fy * h]
+    save(strip([
+        (fit(render(t2, look("WHITE_TO_BLACK", base="BLACK", focus=[{"at": at("twilight2", 0.24, 0.45), "width": 0.04,
+                                                                     "softness": 0.03}], **smooth)), h=300),
+         "--base BLACK --focus @X,Y"),
+        (fit(render(t2, look("MIST", focus=[{"at": at("twilight2", 0.24, 0.45), "width": 0.05, "softness": 0.04}],
+                             **smooth)), h=300), "MIST --focus @X,Y"),
+        (fit(render(t5, look("WHITE_TO_BLACK", base="BLACK", focus=[
+            {"at": at("twilight5", 0.92, 0.48), "width": 0.06, "softness": 0.03},
+            {"at": at("twilight5", 0.64, 0.55), "width": 0.03, "softness": 0.02, "strength": 0.7}], **smooth)), h=300),
+         "two distances"),
+        (fit(render(d["twilight3"], look("WHITE_TO_BLACK", base="WHITE", focus=[
+            {"at": at("twilight3", 0.45, 0.5), "width": 0.15, "softness": 0.05, "strength": -1}], **smooth)), h=300),
+         "--base WHITE, strength -1"),
+    ]), out / "focus.jpg")
+
     # Contact sheet: rows = maps, columns = features.
     cols = [
         ("depth map", None),
