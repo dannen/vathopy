@@ -118,6 +118,8 @@
     <h2>Shape</h2>
     <div class="row"><label for="cycles">Cycles</label><output id="cycles_v"></output>
       <input type="range" id="cycles" min="0" max="10" step="0.25" value="2"></div>
+    <div class="row" title="Fine-tunes Cycles: adds or subtracts up to 0.25 in 0.05 steps"><label for="cycles_fine">Cycles fine</label><output id="cycles_fine_v"></output>
+      <input type="range" id="cycles_fine" min="-0.25" max="0.25" step="0.05" value="0"></div>
     <div class="row"><label for="contours">Contour lines</label><output id="contours_v"></output>
       <input type="range" id="contours" min="0" max="10" step="0.25" value="0"></div>
     <div class="row"><label for="contour_strength">Line darkness</label><output id="contour_strength_v"></output>
@@ -170,10 +172,11 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-const sliders = ["cycles", "contours", "contour_strength", "contour_width", "smooth", "supersample"];
+const sliders = ["cycles", "cycles_fine", "contours", "contour_strength", "contour_width", "smooth", "supersample"];
 let palette = "FRINGE";
 const fmt = {
   cycles: (v) => (+v === 0 ? "off" : (+v).toString()),
+  cycles_fine: (v) => (+$("cycles").value === 0 ? "off" : `${+v > 0 ? "+" : +v < 0 ? "−" : "±"}${Math.abs(+v).toFixed(2)} → ${cyclesTotal()}`),
   contours: (v) => (+v === 0 ? "off" : (+v).toString()),
   contour_strength: (v) => (+v).toFixed(2),
   contour_width: (v) => (+v).toString(),
@@ -316,10 +319,22 @@ function buildBands() {
   $("focus_note").textContent = bands.length ? "" : "then click the picture";
 }
 
+// Cycles as rendered: the 0.25-step slider plus the fine one (Cycles at 0 stays off).
+function cyclesTotal() {
+  const c = +$("cycles").value;
+  return c === 0 ? 0 : Math.max(0.05, Math.round((c + +$("cycles_fine").value) * 100) / 100);
+}
+// Any cycles value (a saved look, the probe) back onto the two sliders.
+function setCycles(c) {
+  const coarse = c > 0 ? Math.max(0.25, Math.round(c / 0.25) * 0.25) : 0;
+  $("cycles").value = coarse;
+  $("cycles_fine").value = coarse ? Math.round((c - coarse) / 0.05) * 0.05 : 0;
+}
 function settings() {
   const s = { palette, invert: $("invert").checked, equalize: $("equalize").checked,
               focus_style: $("focus_style").value, focus: bands };
   for (const k of sliders) s[k] = parseFloat($(k).value);
+  s.cycles = cyclesTotal(); delete s.cycles_fine;
   return s;
 }
 function showValues() { for (const k of sliders) $(k + "_v").textContent = fmt[k]($(k).value); }
@@ -450,7 +465,7 @@ $("auto").onclick = async () => {
     const pr = await getJSON("/api/probe", { map: $("map").value, settings: { ...settings(), smooth_auto: true } });
     $("smooth").value = pr.smooth_depth;
     if (+$("contours").value > 0) $("contours").value = pr.contours;
-    if (+$("cycles").value > 0 || +$("contours").value === 0) $("cycles").value = pr.cycles;
+    if (+$("cycles").value > 0 || +$("contours").value === 0) setCycles(pr.cycles);
     showValues();
     $("probe").textContent = `Most detail it carries cleanly: ${pr.cycles} cycles or ${pr.contours} contour lines`
       + ` (depth wobble ${pr.wobble.toFixed(5)}).` + (pr.suggest_equalize ? "\nDepth is bunched up: try Equalize." : "");
@@ -466,6 +481,7 @@ $("looks").onchange = async () => {
     selectPalette(s.palette);
     $("invert").checked = s.invert; $("equalize").checked = s.equalize;
     for (const k of sliders) $(k).value = s[k] ?? $(k).value;
+    setCycles(+s.cycles || 0);
     $("focus_style").value = s.focus_style || "off";
     bands = (s.focus || []).map((b) => ({ ...b, open: s.focus.length <= 3 })); buildBands(); setView("result", false);
     showValues(); $("name").value = name; full();

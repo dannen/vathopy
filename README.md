@@ -262,7 +262,9 @@ install -e .`) means no reinstall is needed unless `requirements.txt` changed.
 - **Palette:** swatches of all presets plus the black/white fringe ramp, then your own palettes (marked ★, re-read
   from the palette folder on every page load), with **Invert** (mirror the ramp) and **Equalize**.
 - **Sliders:** cycles and contour lines (0 = off, 0.25 steps), line darkness and width, smoothing and
-  anti-aliasing. It starts at 2 cycles, 1 px lines, smoothing off and 2× anti-aliasing.
+  anti-aliasing. It starts at 2 cycles, 1 px lines, smoothing off and 2× anti-aliasing. **Cycles fine** adds
+  or subtracts up to 0.25 to the cycles in 0.05 steps (its readout shows the total, e.g. `+0.10 → 2.1`); a
+  saved look with, say, 3.4 cycles loads as 3.5 and −0.10.
 - **Step buttons:** every slider has a ◀ and a ▶ either side that move it down or up by one step in its own
   units (0.25 cycles, 1° of lean, 0.005 of depth, …). Clicks only move the value; nothing renders until they've
   stopped for 0.25 s, then the last setting renders once at full quality. Locked focuses disable them too.
