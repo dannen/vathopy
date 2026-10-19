@@ -10,11 +10,16 @@ same depth map and settings, it produces the same picture as the add-on's artist
 It runs on any Linux machine with Python 3.10+, numpy, OpenCV and OpenEXR. No GPU is needed: a
 24-megapixel picture renders in a few seconds on the CPU.
 
+![A depth map and three vathopy looks](examples/twilight/hero.jpg)
+
 ## Install
 
 ```bash
-pip install -e .          # from this folder; installs the `vathopy` command
-pip install -e '.[test]'  # plus pytest
+python3 -m venv .venv && . .venv/bin/activate
+pip install -r requirements.txt   # numpy, OpenCV (headless), OpenEXR
+pip install -e .                  # from this folder; installs the `vathopy` command
+pip install -e '.[test]'          # optional: pytest
+pip install -e '.[examples]'      # optional: Pillow, for tools/make_examples.py
 ```
 
 ## Typical pipeline
@@ -45,8 +50,12 @@ vathopy render depth.exr --preset VERMILION_INK_CYAN --contours 5 -o out/    # g
 vathopy render depth.exr --preset VERMILION_INK_CYAN --contours 5 --contour-strength 0.6 --contour-width 3 -o out/
 ```
 
+![--cycles 1, 2, 4 and 6](examples/twilight/cycles.jpg)
+
 - **`--cycles N`** repeats the ramp N times across the depth, mirroring every other repeat so there are no seams. One cycle is there and back, so whole numbers end on the ramp's far colour at the near end; use a half step (1.5, 2.5, …) to end on its near colour. With no `--preset` or look ramp it uses a black/white EASE ramp, which is the N-cycle fringe: more cycles means more contour bands. On smooth surfaces (floors, walls, open ground) 4–6 cycles read well; on noisy depth (sky, foliage, film grain) more cycles mostly magnify the noise.
 - **`--contours N`** keeps the ramp as it is (so colour still means distance) and draws thin dark lines at N even steps through the depth, like a topographic map. `--contour-strength` (0–1, default 0.85) sets how dark they are, and `--contour-width` (pixels, default 2) their thickness. Lines keep that width everywhere: steep and gentle slopes alike, and on nearly flat surfaces where a depth-based width would smear into a wide band. Where many lines crowd into a pixel (steep depth edges) it gets their average darkness, and perfectly flat areas (such as the plateaus `prep` clipping leaves at the nearest and farthest values) get no line, just one around their rim.
+
+![--contours on a coral/teal ramp, and contours over a fringe](examples/twilight/contours.jpg)
 
 Both are also look keys: `"cycles": 2.5` and `"contours": {"cycles": 5, "strength": 0.85, "width": 2}`. They're off by default, so other looks render exactly as before.
 
@@ -59,6 +68,8 @@ vathopy render depth.exr --preset VERMILION_INK_CYAN --contours 8 --smooth-depth
 - **`--smooth-depth R`** smooths the depth map before rendering with an edge-preserving (bilateral) filter, radius R px (try 2–6). Small depth noise inside surfaces is evened out, so contour lines and fringes follow the surfaces in smooth curves instead of breaking up, while the steps between objects stay sharp. This is the main fix for ragged contours, especially on noisy depth (film scans, foliage, sky).
 - **`--supersample N`** (1–4) anti-aliases: it renders at N× the resolution and averages back down, so line and edge pixels get in-between values instead of hard steps. It softens stair-stepped edges. It costs about N² in time, which is still well under a second per 1280 px picture at N = 3.
 
+![2x crop: plain, smoothed, smoothed and anti-aliased](examples/twilight/smoothing.jpg)
+
 Both apply to everything (contours, cycles, bands, area edges), are look keys (`"smooth_depth": 4`, `"supersample": 3`), and are off by default. The output is always the depth map's own size.
 
 ### GUI: try looks with sliders
@@ -69,6 +80,8 @@ vathopy gui --depth-dir DIR --favourites DIR --port 8770
 ```
 
 A small local web app (Python standard library server + one HTML page, no extra dependencies):
+
+![The vathopy GUI: palette swatches, sliders and the rendered picture](examples/webui-example.jpg)
 
 - **Depth map:** picks from the `.exr` files in `--depth-dir` (default `~/Pictures/vathography/depth`, raw Marigold output); each is prepped (`--kind near-bright`) once and kept in memory.
 - **Palette:** swatches of all presets plus the black/white fringe ramp, with **Invert** (mirror the ramp) and **Equalize**.
@@ -99,9 +112,24 @@ vathopy render depth.exr --preset EMBER_TO_BLACK --contours auto --smooth-depth 
 Calibrated on test photos: a grainy film scan comes out at about 5 cycles (where it visibly broke up), a photo with a noisy sky at 6.5, a clean portrait at 9. Every map tested supports at least 10 contour lines, the option's maximum. It's a ceiling for detail, not a style choice: fewer cycles can look better.
 
 - **`auto`** for `--cycles`, `--contours` or `--smooth-depth` probes each depth map separately and prints what it chose (`auto: smooth-depth 4, cycles 6.5`).
+![--contours auto, without and with --equalize](examples/twilight/equalize.jpg)
+
 - **`--equalize`** spreads the ramp by pixel count (histogram equalisation), so each colour band and contour level covers about the same share of the picture. It helps most on maps the probe flags, such as a dark room where most pixels sit in a narrow depth band. Look key: `"equalize": true`.
 
-From Python:
+## Examples
+
+![Contact sheet: four depth maps, eight looks](examples/twilight/contact_sheet.jpg)
+
+Each row is one depth map, each column one setting (all with `--smooth-depth 4 --supersample 3`). The
+depth maps were estimated from film stills with Marigold V2. Regenerate every picture in
+`examples/twilight/` from such maps with:
+
+```bash
+pip install -e '.[examples]'
+python tools/make_examples.py DEPTH_DIR    # DEPTH_DIR holds twilight2_depth_*.exr ... twilight5_depth_*.exr
+```
+
+## From Python
 
 ```python
 import vathopy

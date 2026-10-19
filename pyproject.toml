@@ -13,6 +13,7 @@ dependencies = ["numpy>=1.24", "opencv-python-headless>=4.8", "OpenEXR>=3.3"]
 
 [project.optional-dependencies]
 test = ["pytest"]
+examples = ["Pillow"]  # tools/make_examples.py
 
 [project.scripts]
 vathopy = "vathopy.cli:main"
