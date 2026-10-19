@@ -188,6 +188,10 @@ def test_focus_is_a_flat_band_at_that_depth():
     band = {"normal": [0, 0, 1], "center": [0, 0, (0.5 - mid) * s_eff], "width": 0.1 * s_eff, "softness": 0.05 * s_eff}
     ref, _ = vathopy.render(d, {"ramp": lk["ramp"], "base": "BLACK", "bands": [band]})
     assert np.array_equal(out, ref)
+    # the GUI's one-pass weights are this band: on black with strength 1, the result is the weight
+    from vathopy.engine import focus_weights
+    (w,) = focus_weights(d, lk)
+    assert np.allclose(w, out[..., 0], atol=1e-6)
     # strength -1 on a white base: a black subject on white
     out2, _ = vathopy.render(d, dict(lk, base="WHITE", focus=[dict(lk["focus"][0], strength=-1.0)]))
     assert out2[10, 100, 0] == pytest.approx(0.0, abs=1e-5) and out2[10, 20, 0] == pytest.approx(1.0, abs=1e-5)
@@ -334,7 +338,10 @@ def test_gui_settings_round_trip_and_api(tmp_path):
     # settings -> look -> settings
     s = {"palette": "EMBER_TO_BLACK", "invert": True, "equalize": True, "cycles": 2.5, "contours": 6,
          "contour_strength": 0.5, "contour_width": 3, "smooth": 4, "supersample": 3,
-         "focus_style": "black_on_white", "focus": [{"depth": 0.4, "width": 0.08, "softness": 0.04, "strength": 0.6}]}
+         "focus_style": "black_on_white", "focus": [{"depth": 0.4, "width": 0.08, "softness": 0.04, "strength": 0.6,
+                                                     "enabled": True},
+                                                    {"depth": 0.8, "width": 0.05, "softness": 0.02, "strength": 1.0,
+                                                     "enabled": False}]}
     lk = gui.look_from_settings(s)
     lk["smooth_depth"] = 4.0
     back = gui.settings_from_look(lk)
@@ -363,6 +370,8 @@ def test_gui_settings_round_trip_and_api(tmp_path):
         code, body = post("/api/render", {"map": "d.exr", "settings": s, "quality": "preview"})
         assert code == 200 and body[:8] == b"\x89PNG\r\n\x1a\n"
         assert post("/api/render", {"map": "../d.exr", "settings": s, "quality": "full"})[0] == 400
+        code, body = post("/api/render", {"map": "d.exr", "settings": s, "quality": "preview", "view": "highlight"})
+        assert code == 200 and body[:8] == b"\x89PNG\r\n\x1a\n"
         code, body = post("/api/depth_at", {"map": "d.exr", "settings": s, "x": 0.5, "y": 0.0})
         assert code == 200 and json.loads(body)["depth"] > 0.9               # top row = near (bright)
         code, body = post("/api/save", {"map": "d.exr", "settings": s, "name": "my look"})
@@ -392,6 +401,24 @@ def test_gui_settings_round_trip_and_api(tmp_path):
             assert r.status == 200
     finally:
         httpd.shutdown()
+
+
+def test_gui_highlight_tints_each_focus():
+    from vathopy import gui
+    d = np.tile(np.linspace(0, 1, 200, dtype=np.float32), (20, 1))
+    lk = vathopy.normalise_look({"focus": [{"depth": 0.25, "width": 0.1, "softness": 0.02},
+                                           {"depth": 0.75, "width": 0.1, "softness": 0.02}]})
+    img = gui.highlight(d, lk).astype(int)                              # top-down 8-bit sRGB
+    assert img.shape == (20, 200, 3)
+    for x, colour in ((50, gui.FOCUS_COLOURS[0]), (150, gui.FOCUS_COLOURS[1])):
+        px = img[10, x]
+        assert np.argmax(px) == np.argmax(colour) and px.max() - px.min() > 60   # tinted with that colour
+    assert img[10, 100].max() - img[10, 100].min() < 10                 # elsewhere: grey
+    lk["focus"][1]["enabled"] = False
+    off = gui.highlight(d, lk).astype(int)
+    assert off[10, 150].max() - off[10, 150].min() < 10                 # switched off: no tint
+    out, info = vathopy.render(d, dict(lk, base="BLACK"))
+    assert info["terms"] == 1 and out[10, 150, 0] < 1e-6 and out[10, 50, 0] > 0.99   # nor in the result
 
 
 def test_cli(tmp_path):

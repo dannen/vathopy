@@ -509,6 +509,27 @@ def focus_bands(focus, lo, hi, s_eff, mid):
     return out
 
 
+def focus_weights(depth, look):
+    """Each focus's band weight (0..1, 1 = fully in focus) at the depth map's resolution, rows
+    bottom-up: the band maths of the result in one pass over the remapped depth, without
+    rendering the look. Switched-off focuses give None. ``depth`` is used as given (no
+    smooth_depth); "at" focuses must already be resolved to a depth."""
+    lk = normalise(look)
+    f = remapped(np.ascontiguousarray(depth, dtype=np.float32), lk)
+    lo, hi = _window(f, lk)
+    s_eff, mid = max(float(lk["plane"]["scale"]), MIN_SCALE), float(lk["plane"]["midlevel"])
+    out = []
+    for b in focus_bands(lk["focus"], lo, hi, s_eff, mid):
+        if not b["enabled"]:
+            out.append(None)
+            continue
+        vals = band_values(b, s_eff, mid)                # flat band: no x/y gradient
+        v = np.float64(vals["A"]) * f.astype(np.float64) - np.float64(vals["O"])
+        u = band_u_slice(v, (vals["M1"], vals["M2"], vals["M3"], vals["M4"]), vals["T"]).astype(np.float32)
+        out.append(apply_lut(u, band_lut(b["interpolation"]), True))
+    return out
+
+
 def pingpong(x, cycles):
     """Fold 0..1 positions so a ramp runs there and back `cycles` times (vathopy's ``cycles``):
     position 0 stays 0, and each half-cycle alternates forward and backward."""

@@ -39,13 +39,19 @@ import numpy as np
 
 from . import io as VIO
 from . import look as LOOK
-from .engine import focus_depth_at, render, smooth_depth
+from .engine import focus_depth_at, focus_weights, render, smooth_depth
 from .probe import probe
 from .ramp import PRESETS, Ramp
 
 HTML = Path(__file__).with_name("gui.html")
 FRINGE = "FRINGE"  # the black/white EASE ramp that --cycles uses with no preset
 FRINGE_RAMP = {"stops": [[0.0, [0.0, 0.0, 0.0, 1.0]], [1.0, [1.0, 1.0, 1.0, 1.0]]], "interpolation": "EASE"}
+# Highlight colours for focus 1-16 (sRGB), the same order as in gui.html.
+FOCUS_COLOURS = ((255, 122, 60), (46, 196, 255), (198, 75, 255), (125, 220, 58), (255, 214, 10), (255, 77, 166),
+                 (0, 191, 165), (230, 40, 40), (70, 110, 255), (196, 150, 40), (130, 255, 190), (220, 0, 255),
+                 (140, 220, 255), (255, 150, 130), (200, 240, 30), (180, 160, 255))
+MAX_FOCUS = len(FOCUS_COLOURS)
+HIGHLIGHT_ALPHA = 0.7
 # Focus styles: (look base, band strength).
 FOCUS_STYLES = {"white_on_black": ("BLACK", 1.0), "black_on_white": ("WHITE", -1.0),
                 "light": ("RAMP", 1.0), "dark": ("RAMP", -1.0)}
@@ -97,8 +103,25 @@ def look_from_settings(s, preview=False):
             raise ValueError(f"unknown focus style {style!r}")
         lk["base"], sign = FOCUS_STYLES[style]           # each focus's strength slider is 0-1; the style sets the sign
         lk["focus"] = [{"depth": float(fo["depth"]), "width": float(fo["width"]), "softness": float(fo["softness"]),
-                        "strength": sign * min(max(float(fo.get("strength", 1.0)), 0.0), 1.0)} for fo in s["focus"][:4]]
+                        "strength": sign * min(max(float(fo.get("strength", 1.0)), 0.0), 1.0),
+                        "enabled": bool(fo.get("enabled", True))} for fo in s["focus"][:MAX_FOCUS]]
     return LOOK.normalise(lk)
+
+
+def highlight(depth, lk):
+    """The look without its focus, desaturated, with each focus's region tinted in its colour:
+    top-down 8-bit sRGB. A focus's region is its band weight (1 = fully in focus), the same
+    band the result uses."""
+    plain = LOOK.normalise({**lk, "focus": [], "base": "RAMP"})
+    out, _ = render(depth, plain)
+    rgb = _srgb8(out[..., :3]).astype(np.float32) / 255.0
+    rgb = 0.85 * (0.35 * rgb + 0.65 * rgb.mean(axis=-1, keepdims=True))
+    for i, w in enumerate(focus_weights(depth, lk)):
+        if w is None:
+            continue                                     # switched off: no tint (it keeps its colour slot)
+        a = HIGHLIGHT_ALPHA * np.clip(w[..., None], 0.0, 1.0)
+        rgb = rgb * (1.0 - a) + (np.asarray(FOCUS_COLOURS[i % len(FOCUS_COLOURS)], np.float32) / 255.0) * a
+    return np.round(rgb[::-1] * 255).astype(np.uint8)
 
 
 def settings_from_look(lk):
@@ -126,7 +149,8 @@ def _focus_settings(lk):
     style = next((k for k, v in FOCUS_STYLES.items() if v == key), "light")
     return {"focus_style": style, "focus": [{"depth": fo["depth"], "width": fo.get("width", 0.1),
                                              "softness": fo.get("softness", 0.05),
-                                             "strength": abs(float(fo.get("strength", 1.0)))} for fo in focus]}
+                                             "strength": abs(float(fo.get("strength", 1.0))),
+                                             "enabled": bool(fo.get("enabled", True))} for fo in focus]}
 
 
 class Maps:
@@ -281,9 +305,13 @@ def make_handler(maps, favourites, preview_size, auth=None):
                 d = _preview_depth(d, preview_size)
             lk = look_from_settings(s, preview=preview)
             t0 = time.perf_counter()
-            out, _ = render(d, lk)
+            if req.get("view") == "highlight" and lk["focus"]:
+                img = highlight(d, lk)
+            else:
+                out, _ = render(d, lk)
+                img = _srgb8(out[::-1, :, :3])
             ms = (time.perf_counter() - t0) * 1000
-            ok, png = cv2.imencode(".png", _srgb8(out[::-1, :, :3])[:, :, ::-1])
+            ok, png = cv2.imencode(".png", img[:, :, ::-1])
             return self._send(200, png.tobytes(), "image/png",
                               {"X-Render-Ms": f"{ms:.0f}", "X-Size": f"{d.shape[1]}x{d.shape[0]}"})
 

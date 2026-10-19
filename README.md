@@ -117,7 +117,12 @@ A small local web app (Python standard library server + one HTML page, no extra 
 - **Sliders:** cycles and contour lines (0 = off, 0.25 steps), line darkness and width, smoothing and anti-aliasing.
 - **Focus:** choose a style (white on black, black on white, or lift/sink over the palette), press **Pick a depth**
   and click the picture: that distance becomes a focus with depth, width, softness and strength sliders, so a
-  second distance can come forward less than the subject. Shift-click to keep picking, up to four.
+  second distance can come forward less than the subject. Shift-click to keep picking, up to 16. Each
+  focus has a checkbox to switch it off and on without losing its settings, and its depth value folds
+  its sliders away to keep a long list short.
+- **Highlights / Result:** while you pick and adjust, the picture shows the look without its focus, greyed,
+  with each focus's region tinted in its own colour (the dot by its sliders), so several focuses and the rest
+  of the picture stay visible. The tabs at the top right (or the T key) switch to the result and back.
 - **Speed:** while a slider moves, a fast preview renders (no anti-aliasing, at most `--preview-size` px, typically 50–100 ms); on release, the full-quality render (about 0.2–0.7 s at ~1200 px). Smoothing is computed once per radius. Click the picture for 100% view.
 - **Auto (probe):** sets smoothing and the cycle or contour count to the most the map carries cleanly (see Probing below).
 - **Looks:** **Save** writes the full-quality 16-bit PNG to `--favourites` (default `~/Pictures/vathography/favorites`, never overwriting) and the look to `looks/<name>.json`; saved looks load back into the controls, and `vathopy render -l looks/<name>.json` reproduces the PNG exactly.
