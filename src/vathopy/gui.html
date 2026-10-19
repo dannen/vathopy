@@ -23,6 +23,12 @@
   .row label { color: var(--text); }
   .row output { color: var(--focus); font-variant-numeric: tabular-nums; min-width: 3.5em; text-align: right; }
   input[type=range] { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); margin: 0; }
+  .slide { grid-column: 1 / -1; display: flex; align-items: center; gap: 2px; }
+  .slide input[type=range] { flex: 1; min-width: 0; }
+  button.step { background: none; border: 0; color: var(--dim); cursor: pointer; padding: 3px 4px; line-height: 0; flex: none; }
+  button.step svg { width: 13px; height: 13px; fill: currentColor; }
+  button.step:hover:not(:disabled) { color: var(--text); }
+  button.step:disabled { opacity: .3; cursor: not-allowed; }
   .checks { display: flex; gap: 16px; margin: 10px 0 0; }
   .checks label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
   .swatches { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px; max-height: 30vh;
@@ -41,10 +47,18 @@
     padding: 6px 10px; font: inherit; cursor: pointer; }
   .inline { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
   .note { color: var(--dim); font-size: 12px; margin-top: 6px; white-space: pre-line; }
-  #status { position: fixed; right: 12px; bottom: 10px; background: rgba(0,0,0,.6); padding: 4px 9px;
+  #status { position: fixed; left: calc(320px + 12px); bottom: 10px; z-index: 3; background: rgba(0,0,0,.6); padding: 4px 9px;
     border-radius: 6px; color: var(--dim); font-variant-numeric: tabular-nums; pointer-events: none; }
-  #view { max-width: 100%; max-height: 100vh; display: block; image-rendering: auto; cursor: zoom-in; }
+  #map { padding: 3px; }
+  #map option { padding: 3px 6px; border-radius: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #map option:checked { background: var(--accent) linear-gradient(var(--accent), var(--accent)); color: #1b1006; }
+  .work { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 10px 12px; max-width: 100%; }
+  #title { font-size: 14px; font-weight: 600; color: var(--text); max-width: 100%; overflow-wrap: anywhere; text-align: center; }
+  .below { display: flex; align-items: center; gap: 10px; }
+  .below[hidden] { display: none; }
+  #view { max-width: 100%; max-height: calc(100vh - 110px); display: block; image-rendering: auto; cursor: zoom-in; }
   main.actual { align-items: flex-start; justify-content: flex-start; }
+  main.actual .work { align-items: flex-start; max-width: none; }
   main.actual #view { max-width: none; max-height: none; cursor: zoom-out; }
   main #view.picking { cursor: crosshair; }
   #pick, #download { display: inline-flex; align-items: center; gap: 7px; }
@@ -81,6 +95,7 @@
     .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; height: auto; }
     aside { border-right: 0; border-bottom: 1px solid var(--line); }
     #view { max-height: none; }
+    #status { left: 12px; }
   }
 </style>
 </head>
@@ -88,7 +103,7 @@
 <div class="app">
   <aside>
     <h1>vathopy</h1>
-    <select id="map" aria-label="Depth map"></select>
+    <select id="map" size="5" aria-label="Depth map (up/down arrows move to the next)"></select>
     <div class="note" id="folder"></div>
 
     <h2>Palette</h2>
@@ -100,13 +115,13 @@
 
     <h2>Shape</h2>
     <div class="row"><label for="cycles">Cycles</label><output id="cycles_v"></output>
-      <input type="range" id="cycles" min="0" max="10" step="0.25" value="4"></div>
+      <input type="range" id="cycles" min="0" max="10" step="0.25" value="2"></div>
     <div class="row"><label for="contours">Contour lines</label><output id="contours_v"></output>
       <input type="range" id="contours" min="0" max="10" step="0.25" value="0"></div>
     <div class="row"><label for="contour_strength">Line darkness</label><output id="contour_strength_v"></output>
       <input type="range" id="contour_strength" min="0" max="1" step="0.05" value="0.85"></div>
     <div class="row"><label for="contour_width">Line width (px)</label><output id="contour_width_v"></output>
-      <input type="range" id="contour_width" min="0.5" max="8" step="0.5" value="2"></div>
+      <input type="range" id="contour_width" min="0.5" max="8" step="0.5" value="1"></div>
 
     <h2>Focus</h2>
     <select id="focus_style" aria-label="Focus style">
@@ -123,9 +138,9 @@
 
     <h2>Quality</h2>
     <div class="row"><label for="smooth">Smoothing (px)</label><output id="smooth_v"></output>
-      <input type="range" id="smooth" min="0" max="12" step="0.5" value="4"></div>
+      <input type="range" id="smooth" min="0" max="12" step="0.5" value="0"></div>
     <div class="row"><label for="supersample">Anti-aliasing</label><output id="supersample_v"></output>
-      <input type="range" id="supersample" min="1" max="4" step="1" value="3"></div>
+      <input type="range" id="supersample" min="1" max="4" step="1" value="2"></div>
     <div class="inline"><button class="ghost" id="auto" title="Probe this depth map and set smoothing and the cycle/contour count to the most it carries cleanly">Auto (probe)</button></div>
     <div class="note" id="probe"></div>
 
@@ -133,11 +148,15 @@
     <select id="looks" aria-label="Load a saved look"><option value="">Load a saved look…</option></select>
     <div class="inline"><input type="text" id="name" placeholder="name for this look" aria-label="Look name">
       <button class="act" id="save">Save</button></div>
-    <div class="inline"><button class="ghost" id="download" title="Download the full-quality result as a 16-bit PNG">
-      <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 16.5h12"/></svg>Download PNG</button></div>
     <div class="note" id="saved"></div>
   </aside>
-  <main id="stage"><span id="empty">Loading…</span><img id="view" alt="" hidden></main>
+  <main id="stage"><div class="work">
+    <div id="title"></div>
+    <span id="empty">Loading…</span><img id="view" alt="" hidden>
+    <div class="below" id="below" hidden><button class="ghost" id="download" title="Download the full-quality result as a 16-bit PNG">
+      <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 16.5h12"/></svg>Download PNG</button>
+      <span class="note" id="downloaded"></span></div>
+  </div></main>
 </div>
 <div id="status"></div>
 <div id="tabs" role="tablist" aria-label="View" hidden title="T toggles">
@@ -188,6 +207,40 @@ const BAND_TIPS = {
   lean: "Tilt the band away from flat, so it cuts across the scene (a shaft of light) through the point you picked; 0 = flat, negative leans the other way, ±90° = upright, a straight stripe that ignores depth",
   angle: "Turns a leaned band around the point you picked: 0° = tips left/right, ±90° = tips up/down; Lean's sign picks which way",
 };
+// A ◀ and ▶ button either side of every slider, moving it down or up by one step (its own units),
+// as if it had been dragged there and released. A click only moves the slider and its value; nothing
+// renders until the clicks have stopped for STEP_RENDER_DELAY_MS, then the last setting renders once.
+const STEP_RENDER_DELAY_MS = 250;
+const STEP_ICON = { "-1": "M7 1 2 5l5 4z", "1": "M3 1l5 4-5 4z" };
+function addSteppers(root) {
+  for (const input of root.querySelectorAll("input[type=range]")) {
+    if (input.parentElement.classList.contains("slide")) continue;
+    const wrap = document.createElement("span");
+    wrap.className = "slide";
+    input.replaceWith(wrap);
+    let timer = null;
+    const name = input.getAttribute("aria-label") || input.closest(".row")?.querySelector("label")?.textContent || "slider";
+    const button = (dir) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "step";
+      b.title = `${dir < 0 ? "Down" : "Up"} one step (${input.step})`;
+      b.setAttribute("aria-label", `${name}: ${dir < 0 ? "down" : "up"} one step`);
+      b.innerHTML = `<svg viewBox="0 0 10 10" aria-hidden="true"><path d="${STEP_ICON[dir]}"/></svg>`;
+      b.onclick = () => {
+        const before = input.value;
+        dir < 0 ? input.stepDown() : input.stepUp();
+        if (input.value === before) return;
+        quiet = true;                                  // the slider's own handler, without its preview
+        try { input.dispatchEvent(new Event("input")); } finally { quiet = false; }
+        clearTimeout(timer);
+        timer = setTimeout(() => input.dispatchEvent(new Event("change")), STEP_RENDER_DELAY_MS);
+      };
+      return b;
+    };
+    wrap.append(button(-1), input, button(1));
+  }
+}
+
 function buildBands() {
   const box = $("bands");
   box.innerHTML = "";
@@ -227,7 +280,7 @@ function buildBands() {
     lock.checked = b.locked;
     lock.setAttribute("aria-label", `Lock focus ${i + 1}`);
     const applyLock = () => {                       // sliders and remove; on/off and folding stay usable
-      for (const el of div.querySelectorAll("input[type=range], button.remove")) el.disabled = b.locked;
+      for (const el of div.querySelectorAll("input[type=range], button.remove, button.step")) el.disabled = b.locked;
       div.classList.toggle("locked", b.locked);
     };
     lock.onchange = () => { b.locked = lock.checked; applyLock(); };
@@ -252,6 +305,7 @@ function buildBands() {
       input.addEventListener("change", full);
       div.appendChild(row);
     }
+    addSteppers(div);
     applyLock();
     box.appendChild(div);
   });
@@ -292,7 +346,7 @@ async function render(quality) {
     shownId = id;
     if (lastURL) URL.revokeObjectURL(lastURL);
     lastURL = URL.createObjectURL(blob);
-    $("view").src = lastURL; $("view").hidden = false; $("empty").hidden = true;
+    $("view").src = lastURL; $("view").hidden = false; $("empty").hidden = true; $("below").hidden = false;
     $("status").textContent = `${view === "highlight" ? "highlights · " : ""}${quality} · ${r.headers.get("X-Size")} · ${r.headers.get("X-Render-Ms")} ms`;
   } catch (e) {
     $("status").textContent = "error: " + e.message;
@@ -303,8 +357,9 @@ async function render(quality) {
     }
   }
 }
-const preview = () => render("preview");
-const full = () => render("full");
+let quiet = false;                                 // set while a step button updates a slider
+const preview = () => { if (!quiet) render("preview"); };
+const full = () => { previewWaiting = false; return render("full"); };   // a queued preview would replace it
 
 function buildSwatches(list) {
   const box = $("swatches");
@@ -334,8 +389,11 @@ async function loadLooks() {
 async function init() {
   const [maps, pals] = await Promise.all([getJSON("/api/maps"), getJSON("/api/palettes")]);
   $("folder").textContent = maps.folder;
-  for (const m of maps.maps) $("map").add(new Option(m, m));
+  for (const m of maps.maps) { const o = new Option(m, m); o.title = m; $("map").add(o); }
+  $("map").selectedIndex = maps.maps.length ? 0 : -1;
+  showTitle();
   buildSwatches(pals);
+  addSteppers(document);
   buildBands();
   showValues();
   await loadLooks();
@@ -347,8 +405,10 @@ for (const k of sliders) {
   $(k).addEventListener("change", full);
 }
 for (const k of ["invert", "equalize"]) $(k).addEventListener("change", full);
+function showTitle() { $("title").textContent = $("map").value; $("view").alt = $("map").value; }
 $("map").addEventListener("change", () => {
-  $("probe").textContent = "";
+  $("probe").textContent = ""; $("downloaded").textContent = "";
+  showTitle();
   bands = []; buildBands(); setPicking(false); setView("result", false);   // focus depths belong to the old map
   full();
 });
@@ -425,7 +485,7 @@ $("save").onclick = async () => {
 
 $("download").onclick = async () => {
   const btn = $("download");
-  btn.disabled = true; $("saved").textContent = "rendering the PNG…";
+  btn.disabled = true; $("downloaded").textContent = "rendering the PNG…";
   try {
     const r = await fetch("/api/export", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ map: $("map").value, settings: settings(), name: $("name").value }) });
@@ -435,8 +495,8 @@ $("download").onclick = async () => {
     const a = document.createElement("a");
     a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 10000);
-    $("saved").textContent = "Downloaded " + name;
-  } catch (e) { $("saved").textContent = "download failed: " + e.message; }
+    $("downloaded").textContent = "Downloaded " + name;
+  } catch (e) { $("downloaded").textContent = "download failed: " + e.message; }
   finally { btn.disabled = false; }
 };
 

@@ -217,10 +217,15 @@ A small local web app (Python standard library server + one HTML page, no extra 
 - **Auto (probe):** sets smoothing and the cycle or contour count to the most the map carries cleanly (see Probing below).
 - **Looks:** **Save** writes the full-quality 16-bit PNG to `--favourites` (default `~/Pictures/vathography/favorites`, never overwriting) and the look to `looks/<name>.json`; saved looks load back into the controls, and `vathopy render -l looks/<name>.json` reproduces the PNG exactly.
 
-- **Download PNG:** downloads the full-quality result as a 16-bit PNG straight to the browser (named after the
+- **Download PNG** (under the picture): downloads the full-quality result as a 16-bit PNG straight to the browser (named after the
   depth map and the look name, if one is typed), without saving anything on the server. It's always the result,
   even while the Highlights view is showing.
 - **Downloads:** after a save, the page links the PNG and the look, so they can be downloaded when the GUI runs on another machine (such as a RunPod pod).
+- **Step buttons:** every slider has a ◀ and a ▶ either side that move it down or up by one step in its own
+  units (0.25 cycles, 1° of lean, 0.005 of depth, …). Clicks only move the value; nothing renders until they've
+  stopped for 0.25 s, then the last setting renders once at full quality. Locked focuses disable them too.
+- **Depth maps:** a five-row list at the top of the panel; click one, or use the up and down arrow keys to step
+  through them. The selected map's name shows above the picture.
 - **Listed maps:** depth EXRs only; files with `normals`, `albedo` or `bench_` in the name are left out.
 
 It listens on 127.0.0.1 by default. To require a password, set `VATHOPY_GUI_AUTH=user:password` (HTTP basic authentication). Always do that when it's reachable from a network: it warns if started on a network address without one.
