@@ -187,21 +187,85 @@ Both apply to everything (contours, cycles, bands, area edges), are look keys (`
 
 ### GUI: try looks with sliders
 
-```bash
-vathopy gui                     # then open http://127.0.0.1:8770/
-vathopy gui --depth-dir DIR --favourites DIR --port 8770
-vathopy --palettes DIR gui      # your palettes from another folder (see "Your own palettes")
-```
-
 A small local web app (Python standard library server + one HTML page, no extra dependencies):
 
 ![The vathopy GUI: palette swatches, sliders and the rendered picture](examples/webui-example.jpg)
 
-- **Depth map:** picks from the `.exr` files in `--depth-dir` (default `~/Pictures/vathography/depth`, raw Marigold output); each is prepped (`--kind near-bright`) once and kept in memory.
+#### Starting it
+
+From the vathopy folder, with the venv from Install:
+
+```bash
+.venv/bin/vathopy gui           # or `vathopy gui` with the venv activated
+```
+
+Then open http://127.0.0.1:8770/ in a browser. It prints the folders it uses and the address, and keeps
+running in that terminal.
+
+#### Stopping it
+
+Press **Ctrl+C** in its terminal. If you started it in the background (below), stop it with
+`pkill -f 'bin/vathopy gui'`. Closing the browser tab doesn't stop it.
+
+To run it in the background, with its messages in a log file:
+
+```bash
+nohup .venv/bin/vathopy gui > ~/vathopy-gui.log 2>&1 &
+```
+
+#### Folders and options
+
+| Option | Default | What it is |
+|---|---|---|
+| `--depth-dir DIR` | `~/Pictures/vathography/depth` | Where it reads depth maps (`.exr`, raw Marigold output) |
+| `--favourites DIR` | `~/Pictures/vathography/favorites` | Where **Save** and **Save local** write PNGs, and **Save** writes looks (`looks/<name>.json`); saved looks are listed from here |
+| `--palettes DIR` | `~/Pictures/vathography/palettes` | Your own palettes (see "Your own palettes"). It goes **before** `gui`; `$VATHOPY_PALETTES` works too |
+| `--port N` | `8770` | The port; use another to run two at once |
+| `--host ADDR` | `127.0.0.1` | The listen address; `0.0.0.0` makes it reachable from the network (set a password) |
+| `--preview-size N` | `1280` | The largest preview, in px, while a slider is dragged |
+
+For example, another set of depth maps, saving somewhere else, on a second port:
+
+```bash
+.venv/bin/vathopy --palettes ~/my-palettes gui --depth-dir ~/scans/depth --favourites ~/scans/looks --port 8771
+```
+
+The folders are fixed while it runs: to change them, stop it and start it again with new options. New depth
+maps added to `--depth-dir` show up when you reload the page; so do new palettes.
+
+#### Password and other machines
+
+It listens on 127.0.0.1 by default, so only this machine can reach it. To require a password, set
+`VATHOPY_GUI_AUTH=user:password` (HTTP basic authentication) when starting it:
+
+```bash
+VATHOPY_GUI_AUTH="me:$(cat ~/.vathopy-gui-password)" .venv/bin/vathopy gui --host 0.0.0.0
+```
+
+Always do that when it's reachable from a network: it warns if started on a network address without one. To use
+a GUI on another machine without opening it to the network, tunnel the port over SSH instead
+(`ssh -L 8770:127.0.0.1:8770 thatmachine`, then open http://127.0.0.1:8770/ here).
+
+#### Updating
+
+After pulling a new vathopy, stop it and start it again; then reload the page. The editable install (`pip
+install -e .`) means no reinstall is needed unless `requirements.txt` changed.
+
+#### Using it
+
+- **Depth maps:** a five-row list at the top of the panel; click one, or click into the list and use the up and
+  down arrow keys to step through them. The selected map's name shows above the picture. Only depth EXRs are
+  listed; files with `normals`, `albedo` or `bench_` in the name are left out. Each map is prepped (`--kind
+  near-bright`) once and kept in memory.
 - **Sections:** click a heading's ▾ (Palette, Shape, Focus, Quality, Looks) to collapse it; the browser
   remembers which are collapsed. Each focus panel folds the same way from the ▾ on its left.
-- **Palette:** swatches of all presets plus the black/white fringe ramp, then your own palettes (marked ★, re-read from the palette folder on every page load), with **Invert** (mirror the ramp) and **Equalize**.
-- **Sliders:** cycles and contour lines (0 = off, 0.25 steps), line darkness and width, smoothing and anti-aliasing.
+- **Palette:** swatches of all presets plus the black/white fringe ramp, then your own palettes (marked ★, re-read
+  from the palette folder on every page load), with **Invert** (mirror the ramp) and **Equalize**.
+- **Sliders:** cycles and contour lines (0 = off, 0.25 steps), line darkness and width, smoothing and
+  anti-aliasing. It starts at 2 cycles, 1 px lines, smoothing off and 2× anti-aliasing.
+- **Step buttons:** every slider has a ◀ and a ▶ either side that move it down or up by one step in its own
+  units (0.25 cycles, 1° of lean, 0.005 of depth, …). Clicks only move the value; nothing renders until they've
+  stopped for 0.25 s, then the last setting renders once at full quality. Locked focuses disable them too.
 - **Focus:** choose a style (white on black, black on white, or lift/sink over the palette), press **Pick a depth**
   and click the picture: that distance becomes a focus with depth, width, softness and strength sliders (so a
   second distance can come forward less than the subject; at 0 it reads "no effect"), reach width/height/edge to
@@ -212,26 +276,23 @@ A small local web app (Python standard library server + one HTML page, no extra 
   Choosing another depth map clears the focuses, since their depths belong to the old map.
 - **Highlights / Result:** while you pick and adjust, the picture shows the look without its focus, greyed,
   with each focus's region tinted in its own colour (its panel's colour), fainter the lower its strength, so
-  several focuses and the rest of the picture stay visible. The tabs at the top right (or the T key) switch to the result and back.
-- **Speed:** while a slider moves, a fast preview renders (no anti-aliasing, at most `--preview-size` px, typically 50–100 ms); on release, the full-quality render (about 0.2–0.7 s at ~1200 px). Smoothing is computed once per radius. Click the picture for 100% view.
-- **Auto (probe):** sets smoothing and the cycle or contour count to the most the map carries cleanly (see Probing below).
-- **Looks:** **Save** writes the full-quality 16-bit PNG to `--favourites` (default `~/Pictures/vathography/favorites`, never overwriting) and the look to `looks/<name>.json`; saved looks load back into the controls, and `vathopy render -l looks/<name>.json` reproduces the PNG exactly.
-
-- **Save local** (under the picture, left of Download PNG): writes the full-quality result as a 16-bit PNG to
-  `--favourites` on the machine running vathopy, named `<depth map>_<look name or "vathopy">.png` and never
-  overwriting (`-001`, `-002`, …). It's the same picture Download PNG gives, without saving the look.
-- **Download PNG** (under the picture): downloads the full-quality result as a 16-bit PNG straight to the browser (named after the
-  depth map and the look name, if one is typed), without saving anything on the server. It's always the result,
-  even while the Highlights view is showing.
-- **Downloads:** after a save, the page links the PNG and the look, so they can be downloaded when the GUI runs on another machine (such as a RunPod pod).
-- **Step buttons:** every slider has a ◀ and a ▶ either side that move it down or up by one step in its own
-  units (0.25 cycles, 1° of lean, 0.005 of depth, …). Clicks only move the value; nothing renders until they've
-  stopped for 0.25 s, then the last setting renders once at full quality. Locked focuses disable them too.
-- **Depth maps:** a five-row list at the top of the panel; click one, or use the up and down arrow keys to step
-  through them. The selected map's name shows above the picture.
-- **Listed maps:** depth EXRs only; files with `normals`, `albedo` or `bench_` in the name are left out.
-
-It listens on 127.0.0.1 by default. To require a password, set `VATHOPY_GUI_AUTH=user:password` (HTTP basic authentication). Always do that when it's reachable from a network: it warns if started on a network address without one.
+  several focuses and the rest of the picture stay visible. The tabs at the top right (or the T key) switch to
+  the result and back.
+- **Speed:** while a slider moves, a fast preview renders (no anti-aliasing, at most `--preview-size` px,
+  typically 50–100 ms); on release, the full-quality render (about 0.2–0.7 s at ~1200 px). The time of the last
+  render shows at the bottom left. Smoothing is computed once per radius. Click the picture for 100% view.
+- **Auto (probe):** sets smoothing and the cycle or contour count to the most the map carries cleanly (see
+  Probing below).
+- **Save local** (under the picture): writes the full-quality result as a 16-bit PNG to `--favourites` on the
+  machine running vathopy, named `<depth map>_<look name or "vathopy">.png` and never overwriting (`-001`,
+  `-002`, …). It saves the picture only, not the look.
+- **Download PNG** (under the picture, right of Save local): the same 16-bit PNG, downloaded straight to the
+  browser, without saving anything on the server. Both are always the result, even while the Highlights view is
+  showing.
+- **Looks:** type a name and press **Save** to write the full-quality PNG to `--favourites` (never overwriting)
+  and the look to `looks/<name>.json`. Saved looks load back into the controls from the list, and `vathopy
+  render -l looks/<name>.json` reproduces the PNG exactly. After a save, the page links the PNG and the look,
+  so they can be downloaded when the GUI runs on another machine (such as a RunPod pod).
 
 ### Probing a depth map for the most detail
 

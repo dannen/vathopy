@@ -54,7 +54,9 @@
   #map option:checked { background: var(--accent) linear-gradient(var(--accent), var(--accent)); color: #1b1006; }
   .work { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 10px 12px; max-width: 100%; }
   #title { font-size: 14px; font-weight: 600; color: var(--text); max-width: 100%; overflow-wrap: anywhere; text-align: center; }
-  .below { display: flex; align-items: center; gap: 10px; }
+  .below { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .below .btns { display: flex; align-items: center; gap: 10px; }
+  #downloaded { margin-top: 0; text-align: center; overflow-wrap: anywhere; }
   .below[hidden] { display: none; }
   #view { max-width: 100%; max-height: calc(100vh - 110px); display: block; image-rendering: auto; cursor: zoom-in; }
   main.actual { align-items: flex-start; justify-content: flex-start; }
@@ -153,11 +155,11 @@
   <main id="stage"><div class="work">
     <div id="title"></div>
     <span id="empty">Loading…</span><img id="view" alt="" hidden>
-    <div class="below" id="below" hidden><button class="ghost" id="save_local" title="Save the full-quality result as a 16-bit PNG in the favourites folder on the machine running vathopy">
+    <div class="below" id="below" hidden><div class="btns"><button class="ghost" id="save_local" title="Save the full-quality result as a 16-bit PNG in the favourites folder on the machine running vathopy">
       <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 3.5h9.5L16.5 6.5v10h-12.5zM7 3.5v4h6v-4M7 16.5v-5h6v5"/></svg>Save local</button>
       <button class="ghost" id="download" title="Download the full-quality result as a 16-bit PNG">
-      <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 16.5h12"/></svg>Download PNG</button>
-      <span class="note" id="downloaded"></span></div>
+      <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 16.5h12"/></svg>Download PNG</button></div>
+      <div class="note" id="downloaded"></div></div>
   </div></main>
 </div>
 <div id="status"></div>
