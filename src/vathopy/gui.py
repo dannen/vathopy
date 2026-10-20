@@ -199,17 +199,19 @@ class Maps:
     def depth(self, name, smooth=0.0):
         if name not in self.list():
             raise ValueError(f"no depth map {name!r} in {self.folder}")
+        mtime = (self.folder / name).stat().st_mtime_ns     # a rerun replaced the file: read it again
         with self._lock:
-            if name not in self._prepped:
+            if self._prepped.get(name, (None,))[0] != mtime:
                 raw, _ = VIO.read_image_channel0(str(self.folder / name))
                 d, _ = VIO.prepare_depth(raw, "near-bright")
-                self._prepped[name] = np.ascontiguousarray(d[::-1])        # bottom-up, like load_depth
-            key = (name, round(float(smooth), 2))
+                self._prepped[name] = (mtime, np.ascontiguousarray(d[::-1]))   # bottom-up, like load_depth
+            depth = self._prepped[name][1]
+            key = (name, mtime, round(float(smooth), 2))
             if smooth > 0 and key not in self._smoothed:
                 if len(self._smoothed) > 24:
                     self._smoothed.clear()
-                self._smoothed[key] = smooth_depth(self._prepped[name], smooth)
-            return self._smoothed[key] if smooth > 0 else self._prepped[name]
+                self._smoothed[key] = smooth_depth(depth, smooth)
+            return self._smoothed[key] if smooth > 0 else depth
 
 
 def _preview_depth(d, max_size):

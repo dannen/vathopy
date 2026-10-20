@@ -256,7 +256,9 @@ install -e .`) means no reinstall is needed unless `requirements.txt` changed.
 - **Depth maps:** a five-row list at the top of the panel; click one, or click into the list and use the up and
   down arrow keys to step through them. The selected map's name shows above the picture. Only depth EXRs are
   listed; files with `normals`, `albedo` or `bench_` in the name are left out. Each map is prepped (`--kind
-  near-bright`) once and kept in memory.
+  near-bright`) once and kept in memory, and read again if its file changes. **Refresh**, next to the folder
+  path, picks up maps added to (or removed from) the folder since the page loaded, keeping the selected map if
+  it's still there.
 - **Sections:** click a heading's ▾ (Palette, Shape, Focus, Quality, Looks) to collapse it; the browser
   remembers which are collapsed. Each focus panel folds the same way from the ▾ on its left.
 - **Palette:** swatches of all presets plus the black/white fringe ramp, then your own palettes (marked ★, re-read
