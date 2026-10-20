@@ -7,7 +7,7 @@
 <style>
   :root {
     --bg: #15171a; --panel: #1d2024; --line: #2c3036; --text: #e4e6e9; --dim: #8b929b;
-    --accent: #ff7a3c; --focus: #ffb27c;
+    --accent: #ff7a3c; --focus: #ffb27c; --cut: rgba(255, 50, 50, .45);
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
@@ -96,6 +96,25 @@
   #tabs button[aria-selected=true] { background: var(--accent); color: #1b1006; font-weight: 600; }
   .band .head button { background: none; border: 0; color: var(--dim); cursor: pointer; font: inherit; padding: 2px 4px; }
   #empty { color: var(--dim); }
+  #viewbox { position: relative; overflow: hidden; line-height: 0; max-width: 100%; }
+  main.actual #viewbox { max-width: none; }
+  #cropshade { position: absolute; pointer-events: none; box-shadow: 0 0 0 100000px var(--cut); outline: 1px solid var(--focus); }
+  #cropshade[hidden] { display: none; }
+  .crop { display: grid; grid-template-columns: 52px 1fr 34px; align-items: center; gap: 4px; margin: 5px 0; }
+  .crop .val { text-align: right; color: var(--focus); font-variant-numeric: tabular-nums; }
+  .crop .btns { display: flex; gap: 2px; }
+  .crop .btns button { flex: 1; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 4px;
+    padding: 3px 0; font: inherit; font-size: 11.5px; cursor: pointer; font-variant-numeric: tabular-nums; }
+  .crop .btns button.minus { color: var(--dim); }
+  .crop .btns button:hover { border-color: var(--accent); }
+  .loupes { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
+  .loupes figure { margin: 0; text-align: center; }
+  .loupes canvas { width: 100%; aspect-ratio: 1; image-rendering: pixelated; display: block; background: var(--bg);
+    border: 1px solid var(--line); border-radius: 4px; }
+  .loupes figcaption { color: var(--dim); font-size: 11px; margin-top: 2px; }
+  #crop_save, #crop_download { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+  #crop_save .icon, #crop_download .icon { width: 16px; height: 16px; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; fill: none; flex: none; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
   @media (max-width: 720px) {
     .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; height: auto; }
     aside { border-right: 0; border-bottom: 1px solid var(--line); }
@@ -157,10 +176,22 @@
     <div class="inline"><input type="text" id="name" placeholder="name for this look" aria-label="Look name">
       <button class="act" id="save">Save</button></div>
     <div class="note" id="saved"></div>
+
+    <h2>Crop</h2>
+    <div class="note" style="margin-top:0">Pixels cut off each side of the depth map (red on the picture).</div>
+    <div id="crop_sides"></div>
+    <div class="loupes" id="loupes" title="Each corner of the crop, 24 px of the map across"></div>
+    <div class="maprow"><div class="note" id="crop_size"></div>
+      <button type="button" class="ghost small" id="crop_reset" title="Set every side back to 0">Reset</button></div>
+    <div class="inline"><button class="ghost" id="crop_save" title="Write <map>-cropped.exr into the depth-map folder on the machine running vathopy (replaces an earlier crop of this map)" disabled>
+      <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 3.5h9.5L16.5 6.5v10h-12.5zM7 3.5v4h6v-4M7 16.5v-5h6v5"/></svg>Save local</button>
+      <button class="ghost" id="crop_download" title="Download <map>-cropped.exr to this browser; nothing is written on the server" disabled>
+      <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 16.5h12"/></svg>Download EXR</button></div>
+    <div class="note" id="crop_note"></div>
   </aside>
   <main id="stage"><div class="work">
     <div id="title"></div>
-    <span id="empty">Loading…</span><img id="view" alt="" hidden>
+    <span id="empty">Loading…</span><div id="viewbox"><img id="view" alt="" hidden><div id="cropshade" hidden></div></div>
     <div class="below" id="below" hidden><div class="btns"><button class="ghost" id="save_local" title="Save the full-quality result as a 16-bit PNG in the favourites folder on the machine running vathopy">
       <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 3.5h9.5L16.5 6.5v10h-12.5zM7 3.5v4h6v-4M7 16.5v-5h6v5"/></svg>Save local</button>
       <button class="ghost" id="download" title="Download the full-quality result as a 16-bit PNG">
@@ -369,6 +400,8 @@ async function render(quality) {
     shownId = id;
     if (lastURL) URL.revokeObjectURL(lastURL);
     lastURL = URL.createObjectURL(blob);
+    const [mw, mh] = (r.headers.get("X-Map-Size") || "").split("x").map(Number);
+    if (mw && mh) { mapSize = { w: mw, h: mh }; clampCrop(); }
     $("view").src = lastURL; $("view").hidden = false; $("empty").hidden = true; $("below").hidden = false;
     $("status").textContent = `${view === "highlight" ? "highlights · " : ""}${quality} · ${r.headers.get("X-Size")} · ${r.headers.get("X-Render-Ms")} ms`;
   } catch (e) {
@@ -440,7 +473,8 @@ for (const k of sliders) {
 for (const k of ["invert", "equalize"]) $(k).addEventListener("change", full);
 function showTitle() { $("title").textContent = $("map").value; $("view").alt = $("map").value; }
 $("map").addEventListener("change", () => {
-  $("probe").textContent = ""; $("downloaded").textContent = "";
+  $("probe").textContent = ""; $("downloaded").textContent = ""; $("crop_note").textContent = "";
+  mapSize = null; showCrop();                       // the new map's size comes with its render
   showTitle();
   bands = []; buildBands(); setPicking(false); setView("result", false);   // focus depths belong to the old map
   full();
@@ -555,6 +589,114 @@ $("download").onclick = async () => {
   } catch (e) { $("downloaded").textContent = "download failed: " + e.message; }
   finally { btn.disabled = false; }
 };
+
+// Crop: pixels cut off each side of the map. The picture gets a red shade over what goes and the
+// loupes show each corner of what stays; saving/downloading crops the map's EXR itself (all channels).
+const CROP_SIDES = ["top", "right", "bottom", "left"], CROP_STEPS = [-10, -5, -1, 1, 5, 10];
+const OPPOSITE = { top: "bottom", bottom: "top", left: "right", right: "left" };
+const LOUPE_PX = 24, LOUPES = [["top", "left", "Top left"], ["top", "right", "Top right"],
+                               ["bottom", "left", "Bottom left"], ["bottom", "right", "Bottom right"]];
+let crop = { top: 0, right: 0, bottom: 0, left: 0 }, mapSize = null;
+const cropOn = () => CROP_SIDES.some((k) => crop[k] > 0);
+function cropStepButtons(box, sides, label) {
+  for (const n of CROP_STEPS) {
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = (n > 0 ? "+" : "−") + Math.abs(n);
+    if (n < 0) b.className = "minus";
+    b.setAttribute("aria-label", `${label}: ${n > 0 ? "cut" : "give back"} ${Math.abs(n)} px`);
+    b.onclick = () => { for (const k of sides) crop[k] = Math.max(0, crop[k] + n); clampCrop(); $("crop_note").textContent = ""; };
+    box.appendChild(b);
+  }
+}
+for (const [k, label] of [...CROP_SIDES.map((k) => [k, k[0].toUpperCase() + k.slice(1)]), ["all", "All"]]) {
+  const row = document.createElement("div");
+  row.className = "crop";
+  row.innerHTML = `<span></span><div class="btns"></div><span class="val"></span>`;
+  row.firstChild.textContent = label;
+  if (k !== "all") row.querySelector(".val").id = "crop_" + k;
+  cropStepButtons(row.querySelector(".btns"), k === "all" ? CROP_SIDES : [k], label);
+  $("crop_sides").appendChild(row);
+}
+for (const [, , label] of LOUPES) {
+  const f = document.createElement("figure");
+  f.innerHTML = `<canvas width="${LOUPE_PX * 6}" height="${LOUPE_PX * 6}"></canvas><figcaption></figcaption>`;
+  f.querySelector("figcaption").textContent = label;
+  $("loupes").appendChild(f);
+}
+// Keep at least 1 px of the map, then redraw.
+function clampCrop() {
+  if (mapSize) for (const k of CROP_SIDES) {
+    const along = k === "top" || k === "bottom" ? mapSize.h : mapSize.w;
+    crop[k] = Math.max(0, Math.min(crop[k], along - 1 - crop[OPPOSITE[k]]));
+  }
+  showCrop();
+}
+function showCrop() {
+  for (const k of CROP_SIDES) $("crop_" + k).textContent = crop[k];
+  const on = cropOn() && !!mapSize;
+  $("crop_save").disabled = $("crop_download").disabled = !on || !$("map").value;
+  $("crop_size").textContent = mapSize ? `${mapSize.w} × ${mapSize.h} px → ${mapSize.w - crop.left - crop.right} × `
+    + `${mapSize.h - crop.top - crop.bottom} px` + (on ? `  ·  saves as ${$("map").value.replace(/\.exr$/i, "")}-cropped.exr` : "") : "";
+  const sh = $("cropshade");
+  sh.hidden = !on;
+  if (on) {
+    sh.style.left = `${100 * crop.left / mapSize.w}%`; sh.style.top = `${100 * crop.top / mapSize.h}%`;
+    sh.style.width = `${100 * (mapSize.w - crop.left - crop.right) / mapSize.w}%`;
+    sh.style.height = `${100 * (mapSize.h - crop.top - crop.bottom) / mapSize.h}%`;
+  }
+  drawLoupes();
+}
+// LOUPE_PX map pixels around each corner of the crop, from the picture on show (a preview is coarser).
+function drawLoupes() {
+  const img = $("view"), canvases = $("loupes").querySelectorAll("canvas");
+  canvases.forEach((c, i) => {
+    const g = c.getContext("2d");
+    g.fillStyle = getComputedStyle(document.body).getPropertyValue("--bg"); g.fillRect(0, 0, c.width, c.height);
+    if (!mapSize || img.hidden || !img.naturalWidth) return;
+    const s = img.naturalWidth / mapSize.w, k = c.width / LOUPE_PX;
+    const x0 = crop.left, y0 = crop.top, x1 = mapSize.w - crop.right, y1 = mapSize.h - crop.bottom;
+    const [v, hz] = LOUPES[i];
+    const sx = Math.max(0, Math.min(mapSize.w - LOUPE_PX, (hz === "left" ? x0 : x1) - LOUPE_PX / 2));
+    const sy = Math.max(0, Math.min(mapSize.h - LOUPE_PX, (v === "top" ? y0 : y1) - LOUPE_PX / 2));
+    g.imageSmoothingEnabled = false;
+    g.drawImage(img, sx * s, sy * s, LOUPE_PX * s, LOUPE_PX * s, 0, 0, c.width, c.height);
+    const [ax, ay, bx, by] = [(x0 - sx) * k, (y0 - sy) * k, (x1 - sx) * k, (y1 - sy) * k];
+    g.fillStyle = getComputedStyle(document.body).getPropertyValue("--cut");
+    g.fillRect(0, 0, c.width, ay); g.fillRect(0, by, c.width, c.height - by);
+    g.fillRect(0, ay, ax, by - ay); g.fillRect(bx, ay, c.width - bx, by - ay);
+    g.strokeStyle = getComputedStyle(document.body).getPropertyValue("--focus"); g.lineWidth = 1;
+    g.strokeRect(ax + .5, ay + .5, bx - ax, by - ay);
+  });
+}
+$("view").addEventListener("load", drawLoupes);
+$("crop_reset").onclick = () => { for (const k of CROP_SIDES) crop[k] = 0; $("crop_note").textContent = ""; showCrop(); };
+$("crop_save").onclick = async () => {
+  const btn = $("crop_save");
+  btn.disabled = true; $("crop_note").textContent = "cropping…";
+  try {
+    const j = await getJSON("/api/crop_save", { map: $("map").value, crop });
+    $("crop_note").textContent = `${j.replaced ? "Replaced" : "Saved"} ${j.path} (${j.width} × ${j.height} px)`;
+    $("refresh").click();                          // list the new map
+  } catch (e) { $("crop_note").textContent = "crop failed: " + e.message; }
+  finally { showCrop(); }
+};
+$("crop_download").onclick = async () => {
+  const btn = $("crop_download");
+  btn.disabled = true; $("crop_note").textContent = "cropping…";
+  try {
+    const r = await fetch("/api/crop_download", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ map: $("map").value, crop }) });
+    if (!r.ok) throw new Error((await r.json()).error);
+    const name = (r.headers.get("Content-Disposition") || "").match(/filename="([^"]+)"/)?.[1] || "cropped.exr";
+    const url = URL.createObjectURL(await r.blob());
+    const a = document.createElement("a");
+    a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    $("crop_note").textContent = "Downloaded " + name;
+  } catch (e) { $("crop_note").textContent = "download failed: " + e.message; }
+  finally { showCrop(); }
+};
+showCrop();
 
 // Collapsible sidebar sections: a ▾/▸ on the left of each heading, remembered in this browser.
 const COLLAPSED_KEY = "vathopy.collapsed";

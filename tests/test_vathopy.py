@@ -480,6 +480,17 @@ def test_gui_settings_round_trip_and_api(tmp_path):
         saved = json.loads(body)
         with urllib.request.urlopen(base + saved["png_url"]) as r:
             assert r.read()[:4] == b"\x89PNG"
+        # crop: saved next to the map (and listed), or downloaded without writing anything
+        code, body = post("/api/crop_download", {"map": "d.exr", "crop": {"top": 1, "left": 5}})
+        assert code == 200 and body[:4] == b"v/1\x01" and not (depth_dir / "d-cropped.exr").exists()
+        code, body = post("/api/crop_save", {"map": "d.exr", "crop": {"top": 1, "left": 5}})
+        assert code == 200 and json.loads(body)["width"] == 115 and json.loads(body)["height"] == 89
+        assert (depth_dir / "d-cropped.exr").read_bytes() == post("/api/crop_download", {"map": "d.exr", "crop": {"top": 1, "left": 5}})[1]
+        with urllib.request.urlopen(base + "/api/maps") as r:
+            assert json.load(r)["maps"] == ["d-cropped.exr", "d.exr"]
+        for bad in ({"map": "../d.exr", "crop": {"top": 1}}, {"map": "d.exr", "crop": {}},
+                    {"map": "d.exr", "crop": {"top": 60, "bottom": 30}}, {"map": "d.exr", "crop": {"left": -1}}):
+            assert post("/api/crop_save", bad)[0] == 400, bad
         for bad in ("/api/file?name=../d.exr", "/api/file?name=looks/../../x.png"):
             try:
                 urllib.request.urlopen(base + bad); assert False, bad
@@ -502,6 +513,28 @@ def test_gui_settings_round_trip_and_api(tmp_path):
             assert r.status == 200
     finally:
         httpd.shutdown()
+
+
+def test_crop_exr_keeps_channels_types_and_header(tmp_path):
+    import OpenEXR
+    rng = np.random.default_rng(1)
+    rgb = rng.random((30, 40, 3), dtype=np.float32)
+    z = rng.random((30, 40)).astype(np.float16)
+    src, dst = tmp_path / "a.exr", tmp_path / "a-cropped.exr"
+    hdr = {"compression": OpenEXR.PIZ_COMPRESSION, "type": OpenEXR.scanlineimage, "prompt": "{\"1\": {}}"}
+    with OpenEXR.File(hdr, {"RGB": rgb, "Z": z}) as f:
+        f.write(str(src))
+    assert vathopy.crop_exr(src, dst, top=1, right=5, bottom=10, left=2) == (33, 19)
+    with OpenEXR.File(str(dst)) as f:
+        h, ch = f.header(), f.channels()
+        assert np.array_equal(ch["RGB"].pixels, rgb[1:20, 2:35]) and np.array_equal(ch["Z"].pixels, z[1:20, 2:35])
+        assert ch["Z"].pixels.dtype == np.float16 and h["prompt"] == '{"1": {}}'
+        assert h["compression"] == OpenEXR.PIZ_COMPRESSION
+        assert [list(v) for v in h["dataWindow"]] == [[0, 0], [32, 18]] == [list(v) for v in h["displayWindow"]]
+    for bad in ({"top": 15, "bottom": 15}, {"left": 40}, {"top": -1}):
+        with pytest.raises(ValueError):
+            vathopy.crop_exr(src, tmp_path / "bad.exr", **bad)
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["a-cropped.exr", "a.exr"]   # no partial files left
 
 
 def test_gui_highlight_tints_each_focus():

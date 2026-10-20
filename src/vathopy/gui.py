@@ -18,6 +18,10 @@ looks can be loaded back into the controls.
 Saved files can be downloaded from the page (/api/file), which matters when the GUI runs on a
 remote machine such as a RunPod pod.
 
+Crop cuts pixels off each side of a depth map's EXR: "Save cropped map" writes
+<map>-cropped.exr into the depth-map folder (replacing an earlier crop of that map), "Download
+EXR" sends the same file to the browser without writing anything on the server.
+
 It listens on 127.0.0.1 by default. Set VATHOPY_GUI_AUTH="user:password" to require HTTP basic
 authentication (do that whenever it's reachable from a network, e.g. through RunPod's public
 proxy). Only depth maps listed from its own folder can be opened (normals/albedo/bench EXRs
@@ -30,6 +34,7 @@ import hmac
 import json
 import os
 import re
+import tempfile
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -321,6 +326,10 @@ def make_handler(maps, favourites, preview_size, auth=None, palettes_dir=None):
                     return self._save(req)
                 if path == "/api/save_local":
                     return self._save_local(req)
+                if path == "/api/crop_save":
+                    return self._crop_save(req)
+                if path == "/api/crop_download":
+                    return self._crop_download(req)
                 if path == "/api/look":
                     name = _safe_name(req.get("name", ""))
                     lk = json.loads((favourites / "looks" / f"{name}.json").read_text())
@@ -336,6 +345,7 @@ def make_handler(maps, favourites, preview_size, auth=None, palettes_dir=None):
             s = req.get("settings", {})
             preview = req.get("quality") == "preview"
             d = maps.depth(req["map"], float(s.get("smooth", 0) or 0))
+            map_size = f"{d.shape[1]}x{d.shape[0]}"
             if preview:
                 d = _preview_depth(d, preview_size)
             lk = look_from_settings(s, preview=preview)
@@ -348,7 +358,8 @@ def make_handler(maps, favourites, preview_size, auth=None, palettes_dir=None):
             ms = (time.perf_counter() - t0) * 1000
             ok, png = cv2.imencode(".png", img[:, :, ::-1])
             return self._send(200, png.tobytes(), "image/png",
-                              {"X-Render-Ms": f"{ms:.0f}", "X-Size": f"{d.shape[1]}x{d.shape[0]}"})
+                              {"X-Render-Ms": f"{ms:.0f}", "X-Size": f"{d.shape[1]}x{d.shape[0]}",
+                               "X-Map-Size": map_size})
 
         def _export(self, req):
             """The full-quality result as a 16-bit PNG download (nothing is written on the server)."""
@@ -362,6 +373,23 @@ def make_handler(maps, favourites, preview_size, auth=None, palettes_dir=None):
                 raise ValueError("could not encode the PNG")
             return self._send(200, png.tobytes(), "image/png",
                               {"Content-Disposition": f'attachment; filename="{_out_name(req)}.png"'})
+
+        def _crop_save(self, req):
+            """<map>-cropped.exr in the depth-map folder (an earlier crop of the same map is replaced)."""
+            src, sides = _crop_request(maps, req)
+            dst = maps.folder / f"{src.stem}-cropped.exr"
+            replaced = dst.exists()
+            w, h = VIO.crop_exr(src, dst, *sides)
+            return self._send(200, {"path": str(dst), "name": dst.name, "width": w, "height": h, "replaced": replaced})
+
+        def _crop_download(self, req):
+            """The cropped EXR as a download; nothing is kept on the server."""
+            src, sides = _crop_request(maps, req)
+            with tempfile.TemporaryDirectory(prefix="vathopy-crop-") as tmp:
+                VIO.crop_exr(src, Path(tmp) / "crop.exr", *sides)
+                data = (Path(tmp) / "crop.exr").read_bytes()
+            return self._send(200, data, "image/x-exr",
+                              {"Content-Disposition": f'attachment; filename="{src.stem}-cropped.exr"'})
 
         def _save_local(self, req):
             """The full-quality result (as Download PNG gives it) written to the favourites folder, never overwriting."""
@@ -417,6 +445,18 @@ def make_handler(maps, favourites, preview_size, auth=None, palettes_dir=None):
                                     "look_url": f"/api/file?name=looks/{look_path.name}"})
 
     return Handler
+
+
+def _crop_request(maps, req):
+    """The listed map's path and its (top, right, bottom, left) crop, at least one side above 0."""
+    name = req.get("map")
+    if name not in maps.list():
+        raise ValueError(f"no depth map {name!r} in {maps.folder}")
+    crop = req.get("crop") or {}
+    sides = tuple(int(crop.get(k, 0) or 0) for k in ("top", "right", "bottom", "left"))
+    if not any(sides):
+        raise ValueError("nothing to crop: every side is 0")
+    return maps.folder / name, sides
 
 
 def _out_name(req):

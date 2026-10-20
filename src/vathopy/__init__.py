@@ -13,9 +13,9 @@ GPL-3.0-or-later.
 __version__ = "0.1.0"
 
 from .engine import render, remapped
-from .io import load_depth, prepare_depth, write_png, write_exr, write_depth
+from .io import load_depth, prepare_depth, write_png, write_exr, write_depth, crop_exr
 from .look import load as load_look, save as save_look, normalise as normalise_look
 from .ramp import Ramp, preset, PRESETS
 
-__all__ = ["render", "remapped", "load_depth", "prepare_depth", "write_png", "write_exr", "write_depth",
+__all__ = ["render", "remapped", "load_depth", "prepare_depth", "write_png", "write_exr", "write_depth", "crop_exr",
            "load_look", "save_look", "normalise_look", "Ramp", "preset", "PRESETS"]

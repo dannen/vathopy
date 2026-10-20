@@ -259,7 +259,7 @@ install -e .`) means no reinstall is needed unless `requirements.txt` changed.
   near-bright`) once and kept in memory, and read again if its file changes. **Refresh**, next to the folder
   path, picks up maps added to (or removed from) the folder since the page loaded, keeping the selected map if
   it's still there.
-- **Sections:** click a heading's ▾ (Palette, Shape, Focus, Quality, Looks) to collapse it; the browser
+- **Sections:** click a heading's ▾ (Palette, Shape, Focus, Quality, Looks, Crop) to collapse it; the browser
   remembers which are collapsed. Each focus panel folds the same way from the ▾ on its left.
 - **Palette:** swatches of all presets plus the black/white fringe ramp, then your own palettes (marked ★, re-read
   from the palette folder on every page load), with **Invert** (mirror the ramp) and **Equalize**.
@@ -297,6 +297,15 @@ install -e .`) means no reinstall is needed unless `requirements.txt` changed.
   and the look to `looks/<name>.json`. Saved looks load back into the controls from the list, and `vathopy
   render -l looks/<name>.json` reproduces the PNG exactly. After a save, the page links the PNG and the look,
   so they can be downloaded when the GUI runs on another machine (such as a RunPod pod).
+- **Crop:** trims the depth map itself, e.g. to drop edge pixels the depth model got wrong. Each side (and
+  **All**, every side at once) has −10, −5, −1, +1, +5 and +10 px buttons; at least 1 px always stays. The part
+  that goes is shaded red on the picture, and four loupes show each corner of the crop, 24 px of the map across,
+  so single pixels are visible. **Save local** writes `<map>-cropped.exr` into the depth-map folder (replacing an
+  earlier crop of that map) and lists it; **Download EXR** sends the same file to the browser and writes nothing
+  on the server, which is the way to get it from a pod. The crop keeps every channel, the pixel type, the
+  compression and all header attributes (such as ComfyUI's prompt and workflow), and the file is read back and
+  compared before it's kept. The crop amounts stay when you switch maps. From Python:
+  `vathopy.crop_exr(src, dst, top=1, right=1, bottom=1, left=1)`.
 
 ### Probing a depth map for the most detail
 

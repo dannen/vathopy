@@ -195,6 +195,49 @@ def write_exr(out, path, channels="RGB"):
     return path
 
 
+def crop_exr(src, dst, top=0, right=0, bottom=0, left=0):
+    """Write ``src`` with the given number of pixels cut off each side to ``dst``. Every channel,
+    pixel type, the compression and all header attributes (e.g. ComfyUI's prompt/workflow) are
+    kept; the new data and display windows both start at 0,0. The file is read back and compared
+    before it replaces ``dst``. Returns the new (width, height)."""
+    import OpenEXR
+    src, dst = os.fspath(src), os.fspath(dst)
+    sides = [int(v) for v in (top, right, bottom, left)]
+    if min(sides) < 0:
+        raise ValueError("crop amounts can't be negative")
+    top, right, bottom, left = sides
+    check_exr_header(src)
+    with OpenEXR.File(src) as f:
+        hdr = dict(f.header())
+        chans = {}
+        for name, c in f.channels().items():
+            if c.xSampling != 1 or c.ySampling != 1:
+                raise ValueError(f"{src}: channel {name} is subsampled; can't crop it")
+            chans[name] = np.asarray(c.pixels)
+    h, w = next(iter(chans.values())).shape[:2]
+    if top + bottom >= h or left + right >= w:
+        raise ValueError(f"cropping {top}/{right}/{bottom}/{left} px (top/right/bottom/left) leaves nothing "
+                         f"of a {w} x {h} picture")
+    out = {k: np.ascontiguousarray(v[top:h - bottom, left:w - right]) for k, v in chans.items()}
+    nw, nh = w - left - right, h - top - bottom
+    for k in ("channels", "dataWindow", "displayWindow"):
+        hdr.pop(k, None)
+    hdr["dataWindow"] = hdr["displayWindow"] = ((0, 0), (nw - 1, nh - 1))
+    tmp = dst + ".partial"
+    try:
+        with OpenEXR.File(hdr, dict(out)) as f:          # File() swaps the dict's arrays for Channel objects
+            f.write(tmp)
+        with OpenEXR.File(tmp) as f:
+            back = {k: np.asarray(c.pixels) for k, c in f.channels().items()}
+        if back.keys() != out.keys() or not all(np.array_equal(back[k], out[k], equal_nan=True) for k in out):
+            raise ValueError("the cropped file didn't read back the same; nothing written")
+        os.replace(tmp, dst)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+    return nw, nh
+
+
 def write_depth(depth_bottom_up, path):
     """Write a prepared depth map (bottom-up) as float EXR or 16-bit PNG, chosen by extension."""
     path = os.fspath(path)
