@@ -511,6 +511,13 @@ def test_gui_settings_round_trip_and_api(tmp_path):
         assert (depth_dir / "d-cropped.exr").read_bytes() == post("/api/crop_download", {"map": "d.exr", "crop": {"top": 1, "left": 5}})[1]
         with urllib.request.urlopen(base + "/api/maps") as r:
             assert json.load(r)["maps"] == ["d-cropped.exr", "d.exr"]
+        # STL: downloaded (nothing written), or saved into the favourites folder without overwriting
+        stl = {"map": "d.exr", "settings": s, "name": "my look", "mode": "relief", "width_mm": 50, "px": 40}
+        code, body = post("/api/stl", stl)
+        assert code == 200 and len(body) == 84 + 50 * int(np.frombuffer(body[80:84], "<u4")[0])
+        first, second = (json.loads(post("/api/stl", {**stl, "save": True})[1]) for _ in range(2))
+        assert first["name"] == "d_my_look_relief.stl" and second["name"] == "d_my_look_relief-001.stl"
+        assert (tmp_path / "fav" / first["name"]).read_bytes() == body
         for bad in ({"map": "../d.exr", "crop": {"top": 1}}, {"map": "d.exr", "crop": {}},
                     {"map": "d.exr", "crop": {"top": 60, "bottom": 30}}, {"map": "d.exr", "crop": {"left": -1}}):
             assert post("/api/crop_save", bad)[0] == 400, bad

@@ -431,8 +431,9 @@ def make_handler(maps, favourites, preview_size, auth=None, palettes_dir=None):
                               {"Content-Disposition": f'attachment; filename="{_out_name(req)}.png"'})
 
         def _stl(self, req):
-            """The map as a 3D-printable STL download: a relief of the depth, or a lithophane of the
-            picture, cropped (if asked) and turned like the picture on the page."""
+            """The map as a 3D-printable STL: a relief of the depth, or a lithophane of the picture, cropped
+            (if asked) and turned like the picture on the page. A download, or with "save" written to
+            the favourites folder (<map>_<look>_relief.stl, -001 ... rather than overwrite)."""
             from . import mesh
             s = req.get("settings", {})
             o = s.get("orientation") or {}
@@ -462,11 +463,19 @@ def make_handler(maps, favourites, preview_size, auth=None, palettes_dir=None):
                 raise ValueError("width and base must be above 0, and at least 2 points across")
             px_mm = width_mm / (top.shape[1] - 1)
             verts, faces = mesh.heightfield_mesh(top, px_mm, base)
-            name = f"{_out_name(req)}_{'lithophane' if req.get('mode') == 'lithophane' else 'relief'}.stl"
-            return self._send(200, mesh.stl_bytes(verts, faces), "model/stl",
-                              {"Content-Disposition": f'attachment; filename="{name}"',
-                               "X-Triangles": str(len(faces)), "X-Points": f"{top.shape[1]}x{top.shape[0]}",
-                               "X-Size-MM": f"{width_mm:g}x{px_mm * (top.shape[0] - 1):.1f}x{float(verts[:, 2].max()):.1f}"})
+            stem = f"{_out_name(req)}_{'lithophane' if req.get('mode') == 'lithophane' else 'relief'}"
+            data = mesh.stl_bytes(verts, faces)
+            info = {"X-Triangles": str(len(faces)), "X-Points": f"{top.shape[1]}x{top.shape[0]}",
+                    "X-Size-MM": f"{width_mm:g}x{px_mm * (top.shape[0] - 1):.1f}x{float(verts[:, 2].max()):.1f}"}
+            if req.get("save"):                          # Save local: into the favourites folder, never overwriting
+                favourites.mkdir(parents=True, exist_ok=True)
+                path, n = favourites / f"{stem}.stl", 1
+                while path.exists():
+                    path, n = favourites / f"{stem}-{n:03d}.stl", n + 1
+                path.write_bytes(data)
+                return self._send(200, {"path": str(path), "name": path.name, "bytes": len(data),
+                                        "triangles": len(faces), "size_mm": info["X-Size-MM"]})
+            return self._send(200, data, "model/stl", {"Content-Disposition": f'attachment; filename="{stem}.stl"', **info})
 
         def _read_settings(self):
             """Settings from an uploaded PNG/JPEG/JSON (the request body): the page's own if it carries

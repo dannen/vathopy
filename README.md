@@ -419,8 +419,11 @@ install -e .`) means no reinstall is needed unless `requirements.txt` changed.
   the picture: a sphere there (change it to a box, rod or cone, size and turn it) survives the cut. Keep shapes
   are cleared when another depth map is chosen, like focuses.
 - **3D print:** Relief or Lithophane, width, points across, relief height and base (or thinnest/thickest),
-  Far raised, and Use the crop; **Download STL** builds it from the map (cropped and turned as the picture is
-  shown) and says its size and triangle count.
+  Far raised, and Use the crop. **Save local** writes the STL into `--favourites` on the machine running
+  vathopy (`<map>_<look name or "vathopy">_relief.stl` or `…_lithophane.stl`, never overwriting: `-001`, …);
+  **Download STL** sends the same file to the browser and writes nothing on the server. Both build it from the
+  map (cropped and turned as the picture is shown) and say its size and triangle count. PrusaSlicer reads the
+  files as one manifold part and slices them as they are.
 
 ### Probing a depth map for the most detail
 

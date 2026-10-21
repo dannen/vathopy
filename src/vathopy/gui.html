@@ -168,8 +168,8 @@
   .nums input { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px;
     padding: 4px 6px; font: inherit; font-variant-numeric: tabular-nums; }
   .nums [hidden] { display: none; }
-  #stl_download { display: inline-flex; align-items: center; gap: 7px; }
-  #stl_download .icon { width: 16px; height: 16px; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+  #stl_download, #stl_save { display: inline-flex; align-items: center; gap: 7px; }
+  #stl_download .icon, #stl_save .icon { width: 16px; height: 16px; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; fill: none; }
   @media (max-width: 720px) {
     .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; height: auto; }
     aside { border-right: 0; border-bottom: 1px solid var(--line); }
@@ -291,7 +291,9 @@
     </div>
     <div class="checks"><label class="relief-only"><input type="checkbox" id="stl_invert"> Far raised (a mould)</label>
       <label title="Print only what the crop above keeps"><input type="checkbox" id="stl_crop" checked> Use the crop</label></div>
-    <div class="inline"><button class="ghost" id="stl_download" title="Download a binary STL (millimetres), turned like the picture">
+    <div class="inline"><button class="ghost" id="stl_save" title="Write the STL (millimetres, turned like the picture) into the favourites folder on the machine running vathopy">
+      <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 3.5h9.5L16.5 6.5v10h-12.5zM7 3.5v4h6v-4M7 16.5v-5h6v5"/></svg>Save local</button>
+      <button class="ghost" id="stl_download" title="Download a binary STL (millimetres), turned like the picture">
       <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 16.5h12"/></svg>Download STL</button></div>
     <div class="note" id="stl_note"></div>
   </aside>
@@ -1109,15 +1111,29 @@ function showStlMode() {
 }
 $("stl_mode").onchange = showStlMode;
 showStlMode();
+function stlRequest(save) {
+  return { map: $("map").value, settings: settings(), name: $("name").value, mode: $("stl_mode").value,
+           width_mm: +$("stl_width").value, px: +$("stl_px").value, relief_mm: +$("stl_relief").value,
+           base_mm: +$("stl_base").value, min_mm: +$("stl_min").value, max_mm: +$("stl_max").value,
+           invert: $("stl_invert").checked, crop: $("stl_crop").checked ? crop : null, save };
+}
+$("stl_save").onclick = async () => {
+  const btn = $("stl_save");
+  btn.disabled = true; $("stl_note").textContent = "building the mesh…";
+  try {
+    const j = await getJSON("/api/stl", stlRequest(true));
+    const [w, h, z] = j.size_mm.split("x");
+    $("stl_note").textContent = `Saved ${j.path}: ${w} × ${h} × ${z} mm, ${j.triangles.toLocaleString()} triangles, `
+      + `${(j.bytes / 1e6).toFixed(1)} MB`;
+  } catch (e) { $("stl_note").textContent = "STL failed: " + e.message; }
+  finally { btn.disabled = false; }
+};
 $("stl_download").onclick = async () => {
   const btn = $("stl_download");
   btn.disabled = true; $("stl_note").textContent = "building the mesh…";
   try {
     const r = await fetch("/api/stl", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ map: $("map").value, settings: settings(), name: $("name").value, mode: $("stl_mode").value,
-                             width_mm: +$("stl_width").value, px: +$("stl_px").value, relief_mm: +$("stl_relief").value,
-                             base_mm: +$("stl_base").value, min_mm: +$("stl_min").value, max_mm: +$("stl_max").value,
-                             invert: $("stl_invert").checked, crop: $("stl_crop").checked ? crop : null }) });
+      body: JSON.stringify(stlRequest(false)) });
     if (!r.ok) throw new Error((await r.json()).error);
     const name = (r.headers.get("Content-Disposition") || "").match(/filename="([^"]+)"/)?.[1] || "vathopy.stl";
     const blob = await r.blob(), url = URL.createObjectURL(blob);
