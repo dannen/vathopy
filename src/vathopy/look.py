@@ -41,6 +41,9 @@ extracted from Blender render exactly as before):
   height, 0 = unlimited) confine the focus to an oval around the pivot, soft over ``"reach_edge"``
   (0-1): an isolated subject with a pool of light at its feet instead of everything at that depth.
   It's the add-on's mask area (ellipsoid, Keep) aimed at that focus's band.
+* ``orientation``: ``{"turns": k, "mirror": m}`` turns the finished picture k quarter turns
+  counter-clockwise, then mirrors it left-right if m; the last step, so focus pivots, ``at`` and
+  everything else stay in the depth map's own coordinates.
 """
 
 import copy
@@ -68,6 +71,7 @@ DEFAULT_LOOK = {
     "smooth_depth": 0.0,
     "equalize": False,
     "focus": [],
+    "orientation": {"turns": 0, "mirror": False},
 }
 
 DEFAULT_CONTOURS = {"cycles": 4.0, "strength": 0.85, "width": 2.0}
@@ -141,6 +145,10 @@ def normalise(look):
         if not lk["cycles"] > 0:
             raise ValueError("cycles must be > 0 (or null for off)")
     lk["equalize"] = bool(lk["equalize"])
+    o = lk["orientation"]
+    if isinstance(o["turns"], bool) or not isinstance(o["turns"], int):
+        raise ValueError("orientation.turns must be a whole number of quarter turns")
+    lk["orientation"] = {"turns": o["turns"] % 4, "mirror": bool(o["mirror"])}
     if lk["supersample"] not in (1, 2, 3, 4):
         raise ValueError("supersample must be 1, 2, 3 or 4")
     lk["smooth_depth"] = float(lk["smooth_depth"])

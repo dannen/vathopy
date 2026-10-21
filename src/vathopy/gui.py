@@ -49,7 +49,7 @@ from . import io as VIO
 from . import look as LOOK
 from . import meta as META
 from . import palettes as PAL
-from .engine import focus_depth_at, focus_weights, render, smooth_depth
+from .engine import focus_depth_at, focus_weights, orient, render, smooth_depth
 from .probe import probe
 from .ramp import PRESETS, Ramp
 
@@ -116,6 +116,8 @@ def look_from_settings(s, preview=False):
         lk["contours"] = {"cycles": contours, "strength": float(s.get("contour_strength", 0.85)),
                           "width": float(s.get("contour_width", 2.0))}
     lk["supersample"] = 1 if preview else int(s.get("supersample", 1))
+    o = s.get("orientation") or {}
+    lk["orientation"] = {"turns": int(o.get("turns", 0) or 0), "mirror": bool(o.get("mirror"))}
     style = s.get("focus_style", "off")
     if style != "off" and s.get("focus"):
         if style not in FOCUS_STYLES:
@@ -136,7 +138,7 @@ def highlight(depth, lk):
     """The look without its focus, desaturated, with each focus's region tinted in its colour:
     top-down 8-bit sRGB. A focus's region is its band weight (1 = fully in focus), the same
     band the result uses."""
-    plain = LOOK.normalise({**lk, "focus": [], "base": "RAMP"})
+    plain = LOOK.normalise({**lk, "focus": [], "base": "RAMP", "orientation": {"turns": 0, "mirror": False}})
     out, _ = render(depth, plain)
     rgb = _srgb8(out[..., :3]).astype(np.float32) / 255.0
     rgb = 0.85 * (0.35 * rgb + 0.65 * rgb.mean(axis=-1, keepdims=True))
@@ -146,7 +148,7 @@ def highlight(depth, lk):
         k = min(abs(float(lk["focus"][i]["strength"])), 1.0)
         a = HIGHLIGHT_ALPHA * (0.2 + 0.8 * k) * np.clip(w[..., None], 0.0, 1.0)   # strength 0: only a faint tint
         rgb = rgb * (1.0 - a) + (np.asarray(FOCUS_COLOURS[i % len(FOCUS_COLOURS)], np.float32) / 255.0) * a
-    return np.round(rgb[::-1] * 255).astype(np.uint8)
+    return orient(np.round(rgb[::-1] * 255).astype(np.uint8), lk["orientation"])   # the tints are in map space
 
 
 def settings_from_look(lk):
@@ -163,6 +165,7 @@ def settings_from_look(lk):
             "contours": c.get("cycles", 0), "contour_strength": c.get("strength", 0.85) if c else 0,
             "contour_width": c.get("width", 2.0), "smooth": lk.get("smooth_depth", 0),
             "supersample": lk.get("supersample", 1), "equalize": bool(lk.get("equalize")),
+            "orientation": dict(lk.get("orientation") or {"turns": 0, "mirror": False}),
             **_focus_settings(lk)}
 
 
@@ -375,7 +378,7 @@ def make_handler(maps, favourites, preview_size, auth=None, palettes_dir=None):
             ms = (time.perf_counter() - t0) * 1000
             ok, png = cv2.imencode(".png", img[:, :, ::-1])
             return self._send(200, png.tobytes(), "image/png",
-                              {"X-Render-Ms": f"{ms:.0f}", "X-Size": f"{d.shape[1]}x{d.shape[0]}",
+                              {"X-Render-Ms": f"{ms:.0f}", "X-Size": f"{img.shape[1]}x{img.shape[0]}",
                                "X-Map-Size": map_size})
 
         def _export(self, req):

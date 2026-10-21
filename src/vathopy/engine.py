@@ -658,9 +658,24 @@ def render(depth, look):
         out_big, info = _render(big, dict(lk, _px_scale=ss))
         out = cv2.resize(out_big, (w_, h_), interpolation=cv2.INTER_AREA).astype(np.float32)
         info["size"] = [w_, h_]
+    o = lk["orientation"]
+    if o["turns"] or o["mirror"]:
+        out = orient(out[::-1], o)[::-1]                 # out is bottom-up; orient works top-down
+        info["size"] = [out.shape[1], out.shape[0]]
     info["supersample"] = ss
     info["seconds"] = time.perf_counter() - t0
     return out, info
+
+
+def orient(img, o):
+    """A top-down image (H, W, ...) turned ``o["turns"]`` quarter turns counter-clockwise, then
+    mirrored left-right if ``o["mirror"]`` (a look's ``orientation``)."""
+    k = int(o.get("turns", 0)) % 4
+    if k:
+        img = np.rot90(img, k)
+    if o.get("mirror"):
+        img = img[:, ::-1]
+    return np.ascontiguousarray(img)
 
 
 def _render(depth, lk):

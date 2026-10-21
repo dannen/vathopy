@@ -38,12 +38,20 @@ vathopy render photo_depth.exr -l my_look.json -o photo_vathograph.png
 # Batch: several inputs into a folder; override the ramp without editing the look.
 vathopy render shots/*_depth.exr -l my_look.json --preset VERMILION_INK_CYAN -o out/
 
-vathopy presets    # 41 ramp presets: the add-on's 19, 8 complementary palettes, 13 colour-to-black, MIST
+vathopy presets    # 65 ramp presets: the add-on's 19, 8 complementary palettes, 13 colour-to-black, MIST,
+                   # 5 metallic, 19 from scientific and thermal-camera colour maps
 ```
 
 ### Your own palettes
 
-The 41 built-in palettes live in `src/vathopy/presets.json`. To add your own, put files in a palette folder:
+The 65 built-in palettes live in `src/vathopy/presets.json`. Besides the add-on's and vathopy's own, there are
+five metallic ramps (Bronze, Silver, Gold, Chrome, Mercury: shadow, body colour, a bright glint, and a darker
+reflection near, so surfaces read as polished metal, rippling with `--cycles`), and colour maps fitted to at most
+32 stops (within 4/255 of the originals, a little more for the hue wheels): the perceptually even Magma,
+Inferno, Plasma, Viridis and Cividis, the cyclic Twilight, the Turbo rainbow, and thermal-camera false-colour
+LUTs from [boson_lut](https://github.com/dannen/boson_lut) (Iron black, Lava, Arctic, Blue lila flame, Electric
+blue, Neon, the isotherms Fire and ice, Black hot blue and Mid-range isotherm, Rainbow graded, Colour wheel 6,
+Go 4-step). `tools/add_palettes.py BOSON_LUT_DIR` regenerates them. To add your own, put files in a palette folder:
 `~/Pictures/vathography/palettes` by default, or `$VATHOPY_PALETTES`, or `vathopy --palettes DIR ...` (before
 the command). Each file becomes a palette named after it, upper-cased (`sunset glow.png` → `SUNSET_GLOW`),
 listed after the built-ins in `vathopy presets` (marked `[yours: …]`) and in the GUI (marked ★). The GUI re-reads
@@ -291,6 +299,9 @@ install -e .`) means no reinstall is needed unless `requirements.txt` changed.
 - **Speed:** while a slider moves, a fast preview renders (no anti-aliasing, at most `--preview-size` px,
   typically 50–100 ms); on release, the full-quality render (about 0.2–0.7 s at ~1200 px). The time of the last
   render shows at the bottom left. Smoothing is computed once per radius. Click the picture for 100% view.
+- **Magnifier** (the lens at the top left of the picture area, or the Z key): a 200 px circle follows the mouse
+  over the picture (either one in Side by side) and shows it 3× larger, pixels unsmoothed; the scroll wheel
+  sets 1.5× to 16× while it's on. Clicking still picks depths or switches to 100% view.
 - **Auto (probe):** sets smoothing and the cycle or contour count to the most the map carries cleanly (see
   Probing below).
 - **Save local** (under the picture): writes the full-quality result as a 16-bit PNG to `--favourites` on the
@@ -303,6 +314,12 @@ install -e .`) means no reinstall is needed unless `requirements.txt` changed.
   **Save inverse** and **Download inverse**, which work like Save local and Download PNG for the right-hand
   picture, named `<depth map>_<look name or "vathopy">_inverse.png`. Each render then makes both pictures, so
   it's a little slower. Picking a depth works on either picture.
+- **Orientation** (the row under the picture): ⟲ 90° and ⟳ 90° turn the picture, ⇆ Flip mirrors it left to
+  right, ⇅ Flip turns it upside down, Reset puts it back. It applies to both pictures in Side by side, to every
+  save and download, and is saved in looks and embedded settings (look key `orientation`). Choosing another
+  depth map resets it. Focus points stay on the same spot of the scene, and the crop follows the picture as
+  shown: Top cuts the top of the picture you see, with the red shade and the loupes to match. The cropped EXR
+  itself keeps the depth map's own orientation.
 - **Looks:** type a name and press **Save** to write the full-quality PNG to `--favourites` (never overwriting)
   and the look to `looks/<name>.json`. Saved looks load back into the controls from the list, and `vathopy
   render -l looks/<name>.json` reproduces the PNG exactly. After a save, the page links the PNG and the look,
@@ -399,6 +416,7 @@ Every key is optional; unknown keys are rejected so that typos don't pass silent
 | `controls` | `[]` | Depth remap controls: `{center, offset, feather, from_min, from_max}` in depth units |
 | `window` | `"auto"` | Ramp range `[lo, hi]` in remapped depth, or `"auto"` = the remapped map's min..max |
 | `tilt` | `null` | Ramp tilt: `{normal: [x,y,z], x0, y0, fit}` |
+| `orientation` | `{"turns": 0, "mirror": false}` | Turns the finished picture `turns` quarter turns counter-clockwise, then mirrors it left-right if `mirror` (vathopy only; the last step, so focus pivots and `at` stay in the depth map's coordinates) |
 | `ramp` | `{"preset": "WHITE_TO_BLACK"}` | `{"preset": KEY, "mirror": bool, "shift": k}` or `{"stops": [[pos, [r,g,b,a]], …], "interpolation", "color_mode", "hue_interpolation", "shift": k}`; colours scene-linear. `shift` (whole number, default 0) moves the colours k stops towards position 0 (the far end, the right of the GUI's swatch), wrapping round, before `mirror` |
 | `ramp_near_left` | `false` | Read the ramp with near at its left end (the add-on's default for new reliefs is `true`) |
 | `base` | `"RAMP"` | What bands/areas sit on: `RAMP`, `BLACK` or `WHITE` |
@@ -448,5 +466,8 @@ add-on's template file.
 
 ## Licence
 
-GPL-3.0-or-later (see `LICENSE`), as required for a port of the GPL add-on. Ramp presets and
-algorithms © 2026 Karim Joseph Nassar.
+GPL-3.0-or-later (see `LICENSE`), as required for a port of the GPL add-on. The add-on's ramp presets and
+algorithms © 2026 Karim Joseph Nassar. Colour maps: Magma, Inferno, Plasma and Viridis by Nathaniel Smith and
+Stéfan van der Walt (CC0), Cividis by Jamie R. Nuñez, Christopher R. Anderton and Ryan S. Renslow and Twilight
+by Bastian Bechtold (both under matplotlib's licence), Turbo by Anton Mikhailov, © Google (Apache-2.0); the thermal LUTs are from
+[boson_lut](https://github.com/dannen/boson_lut).

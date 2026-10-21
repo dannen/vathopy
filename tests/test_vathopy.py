@@ -19,7 +19,7 @@ def depth_field(h=90, w=120):
 
 
 def test_presets_all_load():
-    assert len(PRESETS) == 41  # the add-on's 19 + vathopy's 8 complementary, 13 colour-to-black and MIST
+    assert len(PRESETS) == 65  # the add-on's 19 + vathopy's 8 complementary, 13 colour-to-black, MIST, 5 metallic, 19 from colour maps
     for k in PRESETS:
         r = preset(k)
         v = r.evaluate(np.linspace(0, 1, 11))
@@ -615,7 +615,7 @@ def test_user_palettes_from_a_folder(tmp_path):
         assert "RED_TO_BLUE" in r.stdout and "yours: red to blue.png" in r.stdout
     finally:
         PAL.register(tmp_path / "none", quiet=True)                           # leave only the built-ins
-    assert "RED_TO_BLUE" not in PRESETS and len(PRESETS) == 41
+    assert "RED_TO_BLUE" not in PRESETS and len(PRESETS) == 65
 
 
 def test_user_palettes_reject_hostile_files(tmp_path):
@@ -743,3 +743,27 @@ def test_settings_embedded_in_pngs_and_read_back(tmp_path):
         assert vathopy.look.load(tmp_path / f)["ramp"] == {"preset": "BLACK_WHITE_BLACK", "shift": 1}, f
     # a look JSON read as a file goes back to page settings
     assert gui.settings_from_look(meta.look_of(meta.read((tmp_path / "b.json").read_bytes())))["shift"] == 1
+
+
+def test_orientation_turns_and_mirrors_the_finished_picture():
+    from vathopy import gui
+    from vathopy.engine import render
+    rng = np.random.default_rng(3)
+    d = rng.random((5, 8)).astype(np.float32)
+    base = {"cycles": 2.0, "focus": [{"depth": 0.5, "width": 0.1, "softness": 0.05, "pivot": [0.2, 0.3], "lean": 30.0}]}
+    plain, _ = render(d, vathopy.look.normalise(base))
+    td = plain[::-1]                                                  # top-down, as the picture is seen
+    for turns, mirror in ((1, False), (3, False), (2, True), (1, True), (-1, False)):
+        out, info = render(d, vathopy.look.normalise({**base, "orientation": {"turns": turns, "mirror": mirror}}))
+        want = np.rot90(td, turns % 4)
+        want = want[:, ::-1] if mirror else want
+        assert np.array_equal(out[::-1], want), (turns, mirror)
+        assert info["size"] == [want.shape[1], want.shape[0]]
+    with pytest.raises(ValueError):
+        vathopy.look.normalise({"orientation": {"turns": 0.5}})
+    s = {"palette": "FRINGE", "cycles": 2, "orientation": {"turns": 3, "mirror": True}, "focus_style": "white_on_black",
+         "focus": [{"depth": 0.5, "width": 0.1, "softness": 0.05, "x": 0.2, "y": 0.3}]}
+    lk = gui.look_from_settings(s)
+    assert lk["orientation"] == {"turns": 3, "mirror": True}
+    assert gui.settings_from_look(lk)["orientation"] == {"turns": 3, "mirror": True}
+    assert gui.highlight(d, lk).shape[:2] == (8, 5)                   # the tints turn with the picture
