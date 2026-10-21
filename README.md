@@ -9,6 +9,11 @@ which distances become the subject.
 tilt, the Focus & Shape Bands and the Focus & Shape Areas (Add, Merge and Mask modes). Given the
 same depth map and settings, it produces the same picture as the add-on's artistic export.
 
+On top of that it adds things the add-on doesn't have, all off by default: cycles and contour lines,
+smoothing, anti-aliasing and equalizing, a creative focus picked by depth (as tilted planes or 3D shapes),
+a deletion slab, orientation, 65 palettes plus your own, a web GUI, and 3D-printable reliefs and
+lithophanes (STL).
+
 It runs on any Linux machine with Python 3.10+, numpy, OpenCV and OpenEXR. No GPU is needed: a
 24-megapixel picture renders in a few seconds on the CPU.
 
