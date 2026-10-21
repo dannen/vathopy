@@ -267,6 +267,9 @@ install -e .`) means no reinstall is needed unless `requirements.txt` changed.
   near-bright`) once and kept in memory, and read again if its file changes. **Refresh**, next to the folder
   path, picks up maps added to (or removed from) the folder since the page loaded, keeping the selected map if
   it's still there.
+- **Panel and theme:** the buttons next to the vathopy title switch between a dark and a light theme (it follows
+  the system's setting until you choose; the choice is remembered in that browser) and move the panel to the
+  right or left of the picture (kept for the browser session).
 - **Sections:** click a heading's ▾ (Palette, Shape, Focus, Quality, Looks, Crop) to collapse it; the browser
   remembers which are collapsed. Each focus panel folds the same way from the ▾ on its left.
 - **Palette:** a box three rows of swatches high (scroll for more) with all presets plus the black/white fringe ramp, then your own palettes (marked ★, re-read
