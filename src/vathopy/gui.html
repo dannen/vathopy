@@ -376,9 +376,12 @@ const bandSliders = [["depth", "Depth", 0, 1, 0.005],
                      ["width", (b) => (isShape(b) ? "Shell thickness" : "Width"), 0, 0.5, 0.005, (b) => !isShape(b) || b.fill !== "solid"],
                      ["softness", "Softness", 0, 0.3, 0.005], ["strength", "Strength", 0, 1, 0.05], ...SHAPE_SLIDERS,
                      ["reach_w", "Reach width", 0, 1, 0.01], ["reach_h", "Reach height", 0, 1, 0.01], ["reach_edge", "Reach edge", 0, 1, 0.05],
-                     ["lean", (b) => (isShape(b) ? "Tilt (°)" : "Lean (°)"), -90, 90, 1], ["angle", "Angle (°)", -90, 90, 5]];
-const KEEP_SLIDERS = [["depth", "Depth", 0, 1, 0.005], ...SHAPE_SLIDERS, ["lean", "Tilt (°)", -90, 90, 1],
-                      ["angle", "Angle (°)", -90, 90, 5], ["softness", "Edge softness", 0, 0.2, 0.005]];
+                     ["lean", (b) => (b.shape === "cylinder" ? "Tilt towards you (°)" : isShape(b) ? "Tilt (°)" : "Lean (°)"), -90, 90, 1],
+                     ["angle", (b) => (b.shape === "cylinder" ? "Turn (°)" : "Angle (°)"), -90, 90, 5]];
+const KEEP_SLIDERS = [["depth", "Depth", 0, 1, 0.005], ...SHAPE_SLIDERS,
+                      ["lean", (b) => (b.shape === "cylinder" ? "Tilt towards you (°)" : "Tilt (°)"), -90, 90, 1],
+                      ["angle", (b) => (b.shape === "cylinder" ? "Turn (°)" : "Angle (°)"), -90, 90, 5],
+                      ["softness", "Edge softness", 0, 0.2, 0.005]];
 const SHAPE_DEFAULTS = { size_x: 0.15, size_y: 0.15, size_z: 0.15, length: 0, cone_angle: 30 };
 const BAND_DEFAULTS = { strength: 1, lean: 0, angle: 0, reach_w: 0, reach_h: 0, reach_edge: 0.5, ...SHAPE_DEFAULTS };   // older looks
 const KEEP_DEFAULTS = { lean: 0, angle: 0, softness: 0.01, ...SHAPE_DEFAULTS, size_x: 0.1, size_y: 0.1, size_z: 0.1 };
@@ -390,12 +393,14 @@ const BAND_TIPS = {
   reach_w: "Confine this focus to an oval around the point you picked: its half-width, as a fraction of the picture (off = everything at that depth)",
   reach_h: "The oval's half-height, as a fraction of the picture (off with width set = a circle)",
   reach_edge: "How soft the oval's edge is: 0 = sharp, 1 = a glow",
-  lean: "Tilt the band away from flat, so it cuts across the scene (a shaft of light) through the point you picked; 0 = flat, negative leans the other way, ±90° = upright, a straight stripe that ignores depth",
-  angle: "Turns a leaned band around the point you picked: 0° = tips left/right, ±90° = tips up/down; Lean's sign picks which way",
+  lean: (b) => (b.shape === "cylinder" ? "Lean the rod towards you (negative: away): 0 = standing in the picture, ±90° = pointing straight at you"
+    : "Tilt the band away from flat, so it cuts across the scene (a shaft of light) through the point you picked; 0 = flat, negative leans the other way, ±90° = upright, a straight stripe that ignores depth"),
+  angle: (b) => (b.shape === "cylinder" ? "Turn the rod in the picture around the point you picked: 0 = upright, ±90° = lying left-right"
+    : "Turns a leaned band around the point you picked: 0° = tips left/right, ±90° = tips up/down; Lean's sign picks which way"),
   size_x: "Half the shape's width (a cylinder's radius), as a fraction of the picture's width",
   size_y: "Half the shape's height, as a fraction of the picture's width",
   size_z: "Half the shape's depth, in the same units (Depth scale sets how deep the scene is)",
-  length: "The cylinder's length along its axis; endless = through the whole scene",
+  length: "The rod's length along its axis (its height when it stands upright); endless = through the whole picture",
   cone_angle: "Half the cone's opening angle; it's a double cone with its tip at the point you picked",
 };
 // A ◀ and ▶ button either side of every slider, moving it down or up by one step (its own units),
@@ -500,7 +505,8 @@ function buildPanels(o) {
       row.querySelector("label").textContent = label;
       const input = row.querySelector("input"), out = row.querySelector("output");
       input.value = b[key]; out.textContent = bandText(key, b[key]);
-      if (BAND_TIPS[key]) { input.title = BAND_TIPS[key]; row.querySelector("label").title = BAND_TIPS[key]; }
+      const tip = typeof BAND_TIPS[key] === "function" ? BAND_TIPS[key](b) : BAND_TIPS[key];
+      if (tip) { input.title = tip; row.querySelector("label").title = tip; }
       input.setAttribute("aria-label", `${name} ${label}`);
       input.style.accentColor = colour; out.style.color = colour;
       input.addEventListener("input", () => {

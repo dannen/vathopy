@@ -804,8 +804,17 @@ def test_shape_focuses_cut_the_relief_where_geometry_says():
     inside = (np.abs(xx + 0.5 - W / 2) / W < 0.095) & (np.abs(yy + 0.5 - H / 2) / W < 0.045)
     outside = (np.abs(xx + 0.5 - W / 2) / W > 0.105) | (np.abs(yy + 0.5 - H / 2) / W > 0.055)
     assert box[inside].min() > 0.99 and box[outside].max() < 0.01
-    rod = weight(shape="cylinder", size=0.1, fill="solid")     # axis towards the viewer: a disc
+    rod = weight(shape="cylinder", size=0.1, fill="solid", lean=90.0)   # tilted to point at the viewer: a disc
     assert rod[r < 0.09].min() > 0.99 and rod[r > 0.11].max() < 0.01
+    dx, dy = np.abs(xx + 0.5 - W / 2) / W, np.abs(yy + 0.5 - H / 2) / W
+    column = weight(shape="cylinder", size=0.1, fill="solid")           # upright at tilt 0: a full-height stripe
+    assert column[dx < 0.09].min() > 0.99 and column[dx > 0.11].max() < 0.01
+    short = weight(shape="cylinder", size=0.1, fill="solid", length=0.3)   # length: its height on the picture
+    assert short[(dx < 0.09) & (dy < 0.14)].min() > 0.99 and short[dy > 0.16].max() < 0.01
+    lying = weight(shape="cylinder", size=0.1, fill="solid", angle=90.0)   # turned 90: lying left-right
+    assert lying[dy < 0.09].min() > 0.99 and lying[dy > 0.11].max() < 0.01
+    behind = weight(shape="cylinder", size=0.1, fill="solid", depth=0.7)   # moved 0.2 back: misses the wall
+    assert behind.max() < 0.01
     cone = weight(shape="cone", depth=0.3, cone_angle=45.0)    # apex 0.2 behind the wall, 45 degrees: ring 0.2
     assert cone[np.abs(r - 0.2) < 0.004].min() > 0.9 and cone[r < 0.15].max() < 0.05
     # depth_scale stretches depth: the same cone with depth twice as deep meets the wall at radius 0.4

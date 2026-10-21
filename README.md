@@ -140,7 +140,9 @@ compared with its width.
 ### Shape focuses
 
 A focus can be a sphere/ellipsoid, a box, a cylinder (a rod) or a double cone instead of a plane, placed at the
-picked point and depth and turned with Lean/Angle (the cylinder's and cone's axis; the box's turn). **Shell**
+picked point and depth and turned with Lean/Angle (the cone's axis; the box's turn). A cylinder is a rod that
+stands upright in the picture: Turn lays it over (90 = left-right), Tilt leans it towards you (90 = pointing at
+you), Length is its height (0 = endless), and Depth moves it forward or back. **Shell**
 lights a skin of the shape Width thick, the focal plane bent into the shape: rings and outlines where the scene
 crosses it. **Solid** lights everything of the scene inside it. Sizes, Width and Softness are fractions of the
 picture's width.

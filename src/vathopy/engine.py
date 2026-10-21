@@ -574,6 +574,16 @@ def shape_axes(lean, angle):
     return x, np.cross(z, x), z
 
 
+def rod_axes(tilt, angle):
+    """A cylinder's frame: its axis z' stands upright in the picture at tilt 0 / angle 0; angle turns
+    it in the picture (counter-clockwise, 90 = lying left-right), tilt leans it towards the viewer
+    (90 = pointing straight at the viewer)."""
+    t, a = math.radians(tilt), math.radians(angle)
+    z = np.array([-math.sin(a) * math.cos(t), math.cos(a) * math.cos(t), math.sin(t)])
+    x = np.array([math.cos(a), math.sin(a), 0.0])
+    return x, np.cross(z, x), z
+
+
 def shape_distance(q, fo):
     """Signed distance (negative inside) of local points ``q`` (..., 3) to the focus's shape."""
     qx, qy, qz = q[..., 0], q[..., 1], q[..., 2]
@@ -586,7 +596,7 @@ def shape_distance(q, fo):
         dx, dy, dz = np.abs(qx) - sx, np.abs(qy) - sy, np.abs(qz) - sz
         out = np.sqrt(np.maximum(dx, 0) ** 2 + np.maximum(dy, 0) ** 2 + np.maximum(dz, 0) ** 2)
         return out + np.minimum(np.maximum(np.maximum(dx, dy), dz), 0.0)
-    if kind == "cylinder":                               # radius sx around z'; length 0 = endless
+    if kind == "cylinder":                               # radius sx around its axis z'; length 0 = endless
         radial = np.sqrt(qx * qx + qy * qy) - sx
         half = float(fo["length"]) / 2.0
         if half <= 0:
@@ -606,7 +616,8 @@ def focus_shape_weight(f, fo, reach, lo, hi, pw, ph, px, py, mid, s_eff, depth_s
     fx, fy = fo.get("pivot") or (0.5, 0.5)
     ds = float(depth_scale)
     centre = np.array([float(fx) - 0.5, (0.5 - float(fy)) * ph / pw, float(fo["depth"]) * ds])
-    axes = np.stack(shape_axes(float(fo.get("lean", 0.0)), float(fo.get("angle", 0.0))))
+    frame = rod_axes if fo["shape"] == "cylinder" else shape_axes        # a rod stands upright at tilt 0
+    axes = np.stack(frame(float(fo.get("lean", 0.0)), float(fo.get("angle", 0.0))))
     X = (px / np.float32(pw)).astype(np.float64)
     width, soft = max(float(fo["width"]), 0.0), max(float(fo["softness"]), MIN_BAND_SOFTNESS_M)
     lut = band_lut("LINEAR")

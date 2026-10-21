@@ -43,7 +43,8 @@ extracted from Blender render exactly as before):
   It's the add-on's mask area (ellipsoid, Keep) aimed at that focus's band.
 * A focus's ``"shape"`` (vathopy only) makes it a 3D shape instead of a plane: ``"ellipsoid"`` (a
   sphere when its three ``"size"`` values match), ``"box"`` (``size`` = half extents), ``"cylinder"``
-  (radius ``size[0]`` around an axis, ``"length"`` 0 = endless) or ``"cone"`` (a double cone with its
+  (a rod: radius ``size[0]`` around an axis that stands upright in the picture at lean 0 / angle 0;
+  ``angle`` turns it in the picture, ``lean`` tilts it towards the viewer; ``"length"`` 0 = endless) or ``"cone"`` (a double cone with its
   apex at the focus point, half-angle ``"cone_angle"``), centred on ``pivot`` at ``depth``, turned by
   ``lean``/``angle``. ``"fill": "shell"`` lights a skin ``width`` thick (soft over ``softness``):
   the focal plane bent into the shape; ``"solid"`` everything inside. Sizes, width and softness are
