@@ -122,9 +122,9 @@ def look_from_settings(s, preview=False):
              "enabled": bool(k.get("enabled", True)), "locked": bool(k.get("locked", False)),
              **{key: v for key, v in _shape_from_page(k, "ellipsoid").items() if key != "fill"}}   # always solid
             for k in (s.get("keep") or [])[:MAX_FOCUS]]
-    cut = float(s.get("cut_depth", 0) or 0)
-    if cut > 0 or keep:
-        lk["cut"] = {"depth": cut, "softness": float(s.get("cut_softness", 0) or 0),
+    cut, near = float(s.get("cut_depth", 0) or 0), float(s.get("cut_near", 0) or 0)
+    if cut > 0 or near > 0 or keep:
+        lk["cut"] = {"depth": cut, "near": near, "softness": float(s.get("cut_softness", 0) or 0),
                      "fill": s.get("cut_fill") or "black", "keep": keep}
     o = s.get("orientation") or {}
     lk["orientation"] = {"turns": int(o.get("turns", 0) or 0), "mirror": bool(o.get("mirror"))}
@@ -209,7 +209,8 @@ def _shape_to_page(fo, default):
 
 def _cut_settings(lk):
     c = lk.get("cut") or {}
-    return {"cut_depth": float(c.get("depth", 0.0)), "cut_softness": float(c.get("softness", 0.0)),
+    return {"cut_depth": float(c.get("depth", 0.0)), "cut_near": float(c.get("near", 0.0)),
+            "cut_softness": float(c.get("softness", 0.0)),
             "cut_fill": c.get("fill", "black"),
             "keep": [{"depth": float(k["depth"]), "x": k.get("pivot", [0.5, 0.5])[0], "y": k.get("pivot", [0.5, 0.5])[1],
                       "lean": float(k.get("lean", 0.0)), "angle": float(k.get("angle", 0.0)),

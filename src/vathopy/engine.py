@@ -640,19 +640,26 @@ def focus_shape_weight(f, fo, reach, lo, hi, pw, ph, px, py, mid, s_eff, depth_s
 
 
 def cut_weight(f, cut, lo, hi, pw, ph, px, py, mid, s_eff, depth_scale):
-    """How much of each pixel the deletion slab removes, 0..1: everything farther than cut["depth"]
-    (fading back over its softness), less what its keep shapes hold on to."""
-    c, soft = float(cut["depth"]), float(cut["softness"])
+    """How much of each pixel the deletion slab removes, 0..1: everything farther than cut["depth"],
+    and everything nearer than 1 - cut["near"] (fading back over its softness), less what its keep
+    shapes hold on to."""
+    c, n, soft = float(cut["depth"]), float(cut.get("near", 0.0)), float(cut["softness"])
     span = max(hi - lo, 1e-12)
+
+    def side(t, edge):
+        """Removed beyond ``edge`` (t measured so that the removed side is below it)."""
+        if edge >= 1.0:
+            return np.ones(t.shape, np.float32)
+        if edge <= 0.0:
+            return np.zeros(t.shape, np.float32)
+        if soft <= 0.0:
+            return (t < edge).astype(np.float32)
+        u = np.clip((t - edge) / soft, 0.0, 1.0)
+        return (1.0 - u * u * (3.0 - 2.0 * u)).astype(np.float32)
 
     def chunk(r0, r1):
         t = (f[r0:r1].astype(np.float64) - lo) / span                  # 0 far .. 1 near
-        if c >= 1.0:
-            return np.ones(t.shape, np.float32)
-        if soft <= 0.0:
-            return (t < c).astype(np.float32)
-        u = np.clip((t - c) / soft, 0.0, 1.0)
-        return (1.0 - u * u * (3.0 - 2.0 * u)).astype(np.float32)
+        return np.maximum(side(t, c), side(1.0 - t, n))
     gone = PAR.map_rows(chunk, f.shape[0])
     for k in cut["keep"]:
         if k["enabled"]:
@@ -663,7 +670,7 @@ def cut_weight(f, cut, lo, hi, pw, ph, px, py, mid, s_eff, depth_scale):
 
 def apply_cut(out, f, cut, lo, hi, pw, ph, px, py, mid, s_eff, depth_scale):
     """The picture with the deletion slab's pixels turned black or white (alpha kept)."""
-    if float(cut["depth"]) <= 0.0:
+    if float(cut["depth"]) <= 0.0 and float(cut.get("near", 0.0)) <= 0.0:
         return out
     g = cut_weight(f, cut, lo, hi, pw, ph, px, py, mid, s_eff, depth_scale)[..., None]
     col = np.float32(1.0 if cut["fill"] == "white" else 0.0)

@@ -157,11 +157,15 @@ vathopy render depth.exr --base BLACK --focus @410,480:shape=cylinder:size=0.05:
 ### The deletion slab
 
 `--cut C` removes everything farther than C (0 = far … 1 = near, over the depth range) and turns it black or
-white (`--cut-fill`), softly with `--cut-softness`. At 1 everything goes, except the **keep shapes**: spheres,
-boxes, rods or cones (`--keep`, the same fields as a shape focus) that the cut leaves alone.
+white (`--cut-fill`), softly with `--cut-softness`. `--cut-near N` does the same from the near side: it removes
+the nearest N of the depth range (0 = nothing, 1 = everything). Together they leave a band of depths. At 1
+everything goes, except the **keep shapes**: spheres, boxes, rods or cones (`--keep`, the same fields as a shape
+focus) that the cut leaves alone.
 
 ```bash
 vathopy render depth.exr --cut 0.4 -o out/                                   # drop the background
+vathopy render depth.exr --cut-near 0.3 -o out/                              # drop the foreground
+vathopy render depth.exr --cut 0.3 --cut-near 0.3 -o out/                    # keep only the middle depths
 vathopy render depth.exr --cut 1 --keep @950,480:size=0.25 -o out/           # only what's in a sphere around one person
 ```
 
@@ -335,6 +339,11 @@ install -e .`) means no reinstall is needed unless `requirements.txt` changed.
 - **Panel and theme:** the buttons next to the vathopy title switch between a dark and a light theme (it follows
   the system's setting until you choose; the choice is remembered in that browser) and move the panel to the
   right or left of the picture (kept for the browser session).
+- **Remembered across a refresh:** the page keeps its state in the browser (`localStorage`): the depth map, every
+  setting (focuses and keep shapes included), the look name, crop and locks, Side by side and the 3D print
+  fields, saved on every render. Reloading the page puts it all back; if that map is gone, the settings go onto
+  the first map without its focuses and keep shapes. **Reset** (next to the title) asks first, then forgets it all
+  and starts from the defaults; the theme, panel side and collapsed sections stay.
 - **Sections:** click a heading's ▾ (Palette, Shape, Focus, Quality, Looks, Crop) to collapse it; the browser
   remembers which are collapsed. Each focus panel folds the same way from the ▾ on its left.
 - **Palette:** a box three rows of swatches high (scroll for more) with all presets plus the black/white fringe ramp, then your own palettes (marked ★, re-read
@@ -420,7 +429,8 @@ install -e .`) means no reinstall is needed unless `requirements.txt` changed.
   Solid; the sliders change with the shape (sizes, radius and length, cone angle). **Depth scale** under the
   focuses stretches depth for shapes. Highlights tint a shape's region like a plane's.
 - **Cut:** **Delete from far** drags the deletion slab from the farthest depth (0, off) to the nearest (1,
-  everything); Edge softness fades it, and deleted parts become black or white. **Keep a shape**, then click
+  everything); **Delete from near** does the same from the nearest depth, so both together leave a band. Edge
+  softness fades them, and deleted parts become black or white. **Keep a shape**, then click
   the picture: a sphere there (change it to a box, rod or cone, size and turn it) survives the cut. Keep shapes
   are cleared when another depth map is chosen, like focuses.
 - **3D print:** Relief or Lithophane, width, points across, relief height and base (or thinnest/thickest),
@@ -509,7 +519,7 @@ Every key is optional; unknown keys are rejected so that typos don't pass silent
 | `groups` | `{}` | Merge groups: `{"Group 1": {"strength": 1.0, "blend": 0.0}}` |
 | `solo` | `""` | Show only one area (its name) or one band (`"BAND:<id>"`) |
 | `depth_scale` | `1.0` | vathopy: how deep the scene is relative to its width, for shape focuses and keep shapes |
-| `cut` | `null` | vathopy: the deletion slab, `{"depth": 0-1, "softness", "fill": "black"/"white", "keep": [shapes]}` |
+| `cut` | `null` | vathopy: the deletion slabs, `{"depth": 0-1 (from far), "near": 0-1 (from near), "softness", "fill": "black"/"white", "keep": [shapes]}` |
 
 Mask targets: `ALL_BANDS`, `ALL_LIGHTS`, `BAND:<id>`, `LIGHT:<area id>`, `GROUP:<name>`.
 See `examples/demo_look.json` and `examples/template_look.json`. The latter was extracted from the

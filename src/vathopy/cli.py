@@ -169,8 +169,9 @@ def _look_from_args(a):
         lk["base"] = a.base
     if a.depth_scale is not None:
         lk["depth_scale"] = a.depth_scale
-    if a.cut is not None or a.keep:
-        lk["cut"] = {"depth": a.cut if a.cut is not None else 1.0, "softness": a.cut_softness,
+    if a.cut is not None or a.cut_near is not None or a.keep:
+        far = a.cut if a.cut is not None else (1.0 if a.cut_near is None else 0.0)   # --keep alone: keep only those
+        lk["cut"] = {"depth": far, "near": a.cut_near or 0.0, "softness": a.cut_softness,
                      "fill": a.cut_fill, "keep": a.keep or []}
     return LOOK.normalise(lk)
 
@@ -371,7 +372,9 @@ def main(argv=None):
     r.add_argument("--cut", type=float, metavar="C",
                    help="the deletion slab: remove everything farther than C (0 = far .. 1 = near, as a fraction "
                         "of the depth range; 1 removes everything but --keep shapes)")
-    r.add_argument("--cut-softness", type=float, default=0.0, metavar="S", help="fade the cut's edge over S (default 0)")
+    r.add_argument("--cut-near", type=float, metavar="N",
+                   help="the same from the near side: remove everything nearer than 1 - N (0 = nothing .. 1 = everything)")
+    r.add_argument("--cut-softness", type=float, default=0.0, metavar="S", help="fade the cut's edges over S (default 0)")
     r.add_argument("--cut-fill", choices=("black", "white"), default="black", help="what removed parts become")
     r.add_argument("--keep", type=keep_spec, action="append", metavar="SPEC",
                    help="a shape the cut leaves alone: DEPTH or @X,Y, then shape=ellipsoid|box|cylinder|cone, "

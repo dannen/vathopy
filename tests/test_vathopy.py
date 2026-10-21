@@ -445,7 +445,7 @@ def test_gui_settings_round_trip_and_api(tmp_path):
                                                      "reach_w": 0.0, "reach_h": 0.0, "reach_edge": 0.5, "locked": False,
                                                      "shape": "plane", "fill": "shell", "size_x": 0.15, "size_y": 0.15,
                                                      "size_z": 0.15, "length": 0.0, "cone_angle": 30.0}],
-         "depth_scale": 1.5, "cut_depth": 0.3, "cut_softness": 0.02, "cut_fill": "white",
+         "depth_scale": 1.5, "cut_depth": 0.3, "cut_near": 0.2, "cut_softness": 0.02, "cut_fill": "white",
          "keep": [{"depth": 0.6, "x": 0.4, "y": 0.6, "lean": 10.0, "angle": 20.0, "softness": 0.01, "enabled": True,
                    "locked": False, "shape": "cone", "fill": "shell", "size_x": 0.1, "size_y": 0.1, "size_z": 0.1,
                    "length": 0.0, "cone_angle": 25.0}]}
@@ -849,6 +849,14 @@ def test_deletion_slab_removes_far_depths_except_kept_shapes():
     assert np.array_equal(kept[near_centre], plain[near_centre]) and np.all(kept[:, 70:, :3] == 0.0)
     nothing, _ = render(d, {**base, "cut": {"depth": 0.0}})
     assert np.array_equal(nothing, plain)
+    # from the near side: everything nearer than 1 - near goes; with both, only the band between stays
+    near, _ = render(d, {**base, "cut": {"near": 0.3, "fill": "white"}})
+    assert np.all(near[:, t > 0.7, :3] == 1.0) and np.array_equal(near[:, t < 0.7], plain[:, t < 0.7])
+    band, _ = render(d, {**base, "cut": {"depth": 0.4, "near": 0.4}})
+    assert np.all(band[:, (t < 0.4) | (t > 0.6), :3] == 0.0)
+    assert np.array_equal(band[:, (t > 0.4) & (t < 0.6)], plain[:, (t > 0.4) & (t < 0.6)])
+    gone, _ = render(d, {**base, "cut": {"near": 1.0}})
+    assert np.all(gone[..., :3] == 0.0)
 
 
 def test_heightfield_mesh_is_a_closed_solid_with_the_right_volume(tmp_path):

@@ -192,7 +192,8 @@
 <div class="app">
   <aside>
     <h1>vathopy <span class="tools"><button type="button" class="ghost small" id="theme" title="Switch between dark and light (remembered in this browser)">☀ Light</button>
-      <button type="button" class="ghost small" id="side" title="Put this panel on the other side of the picture (kept for this browser session)">Move ▸</button></span></h1>
+      <button type="button" class="ghost small" id="side" title="Put this panel on the other side of the picture (kept for this browser session)">Move ▸</button>
+      <button type="button" class="ghost small" id="reset_all" title="Forget the settings this page remembers and start again from the defaults (the theme and panel side stay)">Reset</button></span></h1>
     <select id="map" size="10" aria-label="Depth map (up/down arrows move to the next)"></select>
     <div class="maprow"><div class="note" id="folder"></div>
       <button type="button" class="ghost small" id="refresh" title="Look for new depth maps in the folder">Refresh</button></div>
@@ -238,9 +239,11 @@
       <input type="range" id="depth_scale" min="0.1" max="4" step="0.05" value="1"></div>
 
     <h2>Cut</h2>
-    <div class="note" style="margin-top:0">The deletion slab: everything farther than the slider is removed, all of it at 1.</div>
+    <div class="note" style="margin-top:0">The deletion slabs: Delete from far removes the far end of the depth, Delete from near the near end; either removes everything at 1.</div>
     <div class="row"><label for="cut_depth">Delete from far</label><output id="cut_depth_v"></output>
       <input type="range" id="cut_depth" min="0" max="1" step="0.005" value="0"></div>
+    <div class="row" title="Removes everything nearer than this, counted from the nearest point: 0 = nothing, 1 = everything"><label for="cut_near">Delete from near</label><output id="cut_near_v"></output>
+      <input type="range" id="cut_near" min="0" max="1" step="0.005" value="0"></div>
     <div class="row"><label for="cut_softness">Edge softness</label><output id="cut_softness_v"></output>
       <input type="range" id="cut_softness" min="0" max="0.2" step="0.005" value="0"></div>
     <div class="inline"><select id="cut_fill" aria-label="What deleted parts become" style="width:auto">
@@ -334,11 +337,12 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-const sliders = ["shift", "depth_scale", "cut_depth", "cut_softness", "cycles", "cycles_fine", "contours", "contour_strength", "contour_width", "smooth", "supersample"];
+const sliders = ["shift", "depth_scale", "cut_depth", "cut_near", "cut_softness", "cycles", "cycles_fine", "contours", "contour_strength", "contour_width", "smooth", "supersample"];
 let palette = "FRINGE";
 const fmt = {
   depth_scale: (v) => `${(+v).toFixed(2)}×`,
   cut_depth: (v) => (+v === 0 ? "off" : +v >= 1 ? "everything" : (+v).toFixed(3)),
+  cut_near: (v) => (+v === 0 ? "off" : +v >= 1 ? "everything" : (+v).toFixed(3)),
   cut_softness: (v) => (+v === 0 ? "hard" : (+v).toFixed(3)),
   shift: (v) => (+v === 0 ? "0" : `${+v > 0 ? "▶ " : "◀ "}${Math.abs(+v)}`),
   cycles: (v) => (+v === 0 ? "off" : (+v).toString()),
@@ -634,7 +638,7 @@ function fitView() {
 window.addEventListener("resize", fitView);
 let quiet = false;                                 // set while a step button updates a slider
 const preview = () => { if (!quiet) render("preview"); };
-const full = () => { previewWaiting = false; return render("full"); };   // a queued preview would replace it
+const full = () => { previewWaiting = false; savePage(); return render("full"); };   // a queued preview would replace it
 
 let paletteList = [];
 // One shift position per colour stop of the selected palette, centred on 0 (◀ negative, ▶ positive).
@@ -710,8 +714,58 @@ async function init() {
   buildBands(); buildKeeps();
   showValues();
   await loadLooks();
-  if (maps.maps.length) full(); else $("empty").textContent = "No depth maps (.exr) in " + maps.folder;
+  if (!maps.maps.length) $("empty").textContent = "No depth maps (.exr) in " + maps.folder;
+  else if (!restorePage(maps)) full();
 }
+
+// The page survives a refresh: every render (and crop, name and 3D print change) saves the map and all
+// the settings in this browser; loading the page puts them back. Focuses and keep shapes come back
+// only on the same map (their depths belong to it).
+const PAGE_KEY = "vathopy.page";
+const STL_FIELDS = ["stl_mode", "stl_width", "stl_px", "stl_relief", "stl_base", "stl_min", "stl_max", "stl_invert", "stl_crop"];
+let restoring = false;
+function savePage() {
+  if (restoring || !$("map").value) return;
+  const stl = Object.fromEntries(STL_FIELDS.map((id) => [id, $(id).type === "checkbox" ? $(id).checked : $(id).value]));
+  const page = { map: $("map").value, settings: settings(), name: $("name").value, crop, pair, stl,
+                 cropLock: $("crop_lock").checked, fineLock: $("cycles_fine_lock").checked };
+  try { localStorage.setItem(PAGE_KEY, JSON.stringify(page)); } catch { /* not remembered */ }
+}
+function restorePage(maps) {
+  let p = null;
+  try { p = JSON.parse(localStorage.getItem(PAGE_KEY) || "null"); } catch { /* nothing saved */ }
+  if (!p || !p.settings) return false;
+  restoring = true;
+  try {
+    const same = maps.maps.includes(p.map);
+    if (same) { $("map").value = p.map; showTitle(); }
+    $("crop_lock").checked = !!p.cropLock;
+    if (same || p.cropLock) Object.assign(crop, p.crop || {});
+    $("cycles_fine_lock").checked = !!p.fineLock;
+    $("cycles_fine_lock").dispatchEvent(new Event("change"));
+    if (p.pair) { pair = true; $("pairbtn").setAttribute("aria-pressed", true); $("save_local2").hidden = $("download2").hidden = false; }
+    for (const [id, v] of Object.entries(p.stl || {})) {
+      const el = $(id);
+      if (el) el.type === "checkbox" ? (el.checked = !!v) : (el.value = v);
+    }
+    showStlMode();
+    restoring = false;
+    applySettings(same ? p.settings : { ...p.settings, focus: [], keep: [] }, p.name || "");   // renders, and saves
+    showCrop();
+    return true;
+  } catch (e) {                                       // e.g. a palette that's gone: start as usual
+    restoring = false;
+    return false;
+  }
+}
+for (const id of ["name", "crop_lock", "cycles_fine_lock"]) $(id).addEventListener("change", savePage);
+$("reset_all").onclick = () => {
+  if (!confirm("Reset every setting to its default? Focuses, keep shapes and the crop go too (saved looks and files stay).")) return;
+  try { localStorage.removeItem(PAGE_KEY); } catch { /* nothing saved */ }
+  restoring = true;                                  // nothing saves the old state again on the way out
+  location.reload();
+};
+for (const id of STL_FIELDS) $(id).addEventListener("change", savePage);
 
 // Moving Cycles sets Cycles fine back to 0, unless it's locked (a locked one can't be moved either).
 $("cycles").addEventListener("input", () => { if (!$("cycles_fine_lock").checked) $("cycles_fine").value = 0; });
@@ -766,7 +820,7 @@ const onPicture = async (ev) => {
       if (keeps.length >= MAX_FOCUS) { $("keep_note").textContent = `${MAX_FOCUS} is the most: remove one first`; return; }
       if (keeps.length >= 3) for (const o of keeps) o.open = false;
       keeps.push({ shape: "ellipsoid", depth: +j.depth.toFixed(3), x: +x.toFixed(4), y: +y.toFixed(4), enabled: true, open: true });
-      $("keep_note").textContent = +$("cut_depth").value ? "" : "it shows once Delete from far is above 0";
+      $("keep_note").textContent = +$("cut_depth").value || +$("cut_near").value ? "" : "it shows once Delete from far or near is above 0";
       buildKeeps(); full();
       return;
     }
@@ -1074,6 +1128,7 @@ function clampCrop() {
 }
 // Everything here is as the picture shows it (turned/mirrored); the saved EXR keeps the map's own orientation.
 function showCrop() {
+  savePage();
   const c = shownCrop(), size = shownSize(), turned = orientation.turns || orientation.mirror;
   for (const k of CROP_SIDES) $("crop_" + k).textContent = c[k];
   const on = cropOn() && !!mapSize;

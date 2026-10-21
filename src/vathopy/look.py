@@ -50,9 +50,11 @@ extracted from Blender render exactly as before):
   the focal plane bent into the shape; ``"solid"`` everything inside. Sizes, width and softness are
   fractions of the picture's width; depth runs 0-1 over the window times the look's ``depth_scale``
   (how deep the scene is relative to its width).
-* ``cut`` (vathopy only): the deletion slab, ``{"depth": c, "softness": s, "fill": "black"|"white",
-  "keep": [shapes]}``: everything farther than ``c`` (0 = far .. 1 = near, as a fraction of the
-  window; 1 deletes everything) becomes black or white, fading back over ``s``, except inside the
+* ``cut`` (vathopy only): the deletion slab, ``{"depth": c, "near": n, "softness": s, "fill":
+  "black"|"white", "keep": [shapes]}``: everything farther than ``c`` (0 = far .. 1 = near, as a
+  fraction of the window; 1 deletes everything), and everything nearer than ``1 - n`` (``n``
+  measured from the nearest end: 0 = none, 1 = everything), becomes black or white, fading back
+  over ``s``, except inside the
   ``keep`` shapes (``shape``, ``size``, ``depth``, ``pivot``, ``lean``/``angle`` etc. as for a shape
   focus, solid, their edge soft over ``softness``).
 * ``orientation``: ``{"turns": k, "mirror": m}`` turns the finished picture k quarter turns
@@ -90,7 +92,7 @@ DEFAULT_LOOK = {
     "cut": None,
 }
 
-DEFAULT_CUT = {"depth": 0.0, "softness": 0.0, "fill": "black", "keep": []}
+DEFAULT_CUT = {"depth": 0.0, "near": 0.0, "softness": 0.0, "fill": "black", "keep": []}
 DEFAULT_KEEP = {"shape": "ellipsoid", "depth": 0.5, "at": None, "pivot": [0.5, 0.5], "size": [0.15, 0.15, 0.15], "length": 0.0,
                 "cone_angle": 30.0, "lean": 0.0, "angle": 0.0, "softness": 0.01, "enabled": True, "locked": False}
 
@@ -169,9 +171,10 @@ def normalise(look):
     lk["depth_scale"] = float(lk["depth_scale"])
     if lk["cut"] is not None:
         c = lk["cut"] = _merge(DEFAULT_CUT, lk["cut"], "cut")
-        c["depth"], c["softness"] = float(c["depth"]), float(c["softness"])
-        if not (0.0 <= c["depth"] <= 1.0 and 0.0 <= c["softness"] <= 1.0) or c["fill"] not in ("black", "white"):
-            raise ValueError("cut: depth and softness must be 0-1, fill black or white")
+        c["depth"], c["near"], c["softness"] = float(c["depth"]), float(c["near"]), float(c["softness"])
+        if not (0.0 <= c["depth"] <= 1.0 and 0.0 <= c["near"] <= 1.0 and 0.0 <= c["softness"] <= 1.0) \
+                or c["fill"] not in ("black", "white"):
+            raise ValueError("cut: depth, near and softness must be 0-1, fill black or white")
         c["keep"] = [_merge(DEFAULT_KEEP, k, f"cut.keep[{i}]") for i, k in enumerate(c["keep"] or [])]
         for i, k in enumerate(c["keep"]):
             if k["shape"] not in ("ellipsoid", "box", "cylinder", "cone"):
