@@ -41,6 +41,19 @@ extracted from Blender render exactly as before):
   height, 0 = unlimited) confine the focus to an oval around the pivot, soft over ``"reach_edge"``
   (0-1): an isolated subject with a pool of light at its feet instead of everything at that depth.
   It's the add-on's mask area (ellipsoid, Keep) aimed at that focus's band.
+* A focus's ``"shape"`` (vathopy only) makes it a 3D shape instead of a plane: ``"ellipsoid"`` (a
+  sphere when its three ``"size"`` values match), ``"box"`` (``size`` = half extents), ``"cylinder"``
+  (radius ``size[0]`` around an axis, ``"length"`` 0 = endless) or ``"cone"`` (a double cone with its
+  apex at the focus point, half-angle ``"cone_angle"``), centred on ``pivot`` at ``depth``, turned by
+  ``lean``/``angle``. ``"fill": "shell"`` lights a skin ``width`` thick (soft over ``softness``):
+  the focal plane bent into the shape; ``"solid"`` everything inside. Sizes, width and softness are
+  fractions of the picture's width; depth runs 0-1 over the window times the look's ``depth_scale``
+  (how deep the scene is relative to its width).
+* ``cut`` (vathopy only): the deletion slab, ``{"depth": c, "softness": s, "fill": "black"|"white",
+  "keep": [shapes]}``: everything farther than ``c`` (0 = far .. 1 = near, as a fraction of the
+  window; 1 deletes everything) becomes black or white, fading back over ``s``, except inside the
+  ``keep`` shapes (``shape``, ``size``, ``depth``, ``pivot``, ``lean``/``angle`` etc. as for a shape
+  focus, solid, their edge soft over ``softness``).
 * ``orientation``: ``{"turns": k, "mirror": m}`` turns the finished picture k quarter turns
   counter-clockwise, then mirrors it left-right if m; the last step, so focus pivots, ``at`` and
   everything else stay in the depth map's own coordinates.
@@ -72,13 +85,20 @@ DEFAULT_LOOK = {
     "equalize": False,
     "focus": [],
     "orientation": {"turns": 0, "mirror": False},
+    "depth_scale": 1.0,
+    "cut": None,
 }
+
+DEFAULT_CUT = {"depth": 0.0, "softness": 0.0, "fill": "black", "keep": []}
+DEFAULT_KEEP = {"shape": "ellipsoid", "depth": 0.5, "at": None, "pivot": [0.5, 0.5], "size": [0.15, 0.15, 0.15], "length": 0.0,
+                "cone_angle": 30.0, "lean": 0.0, "angle": 0.0, "softness": 0.01, "enabled": True, "locked": False}
 
 DEFAULT_CONTOURS = {"cycles": 4.0, "strength": 0.85, "width": 2.0}
 
 DEFAULT_FOCUS = {"depth": None, "at": None, "width": 0.1, "softness": 0.05, "strength": 1.0, "enabled": True,
                  "angle": 0.0, "lean": 0.0, "pivot": None, "reach_w": 0.0, "reach_h": 0.0, "reach_edge": 0.5,
-                 "locked": False}  # locked: the GUI's lock, kept with the look; no effect on the picture
+                 "locked": False,  # locked: the GUI's lock, kept with the look; no effect on the picture
+                 "shape": "plane", "fill": "shell", "size": [0.15, 0.15, 0.15], "length": 0.0, "cone_angle": 30.0}
 
 DEFAULT_CONTROL = {"center": 0.5, "offset": 0.0, "feather": 0.02, "from_min": None, "from_max": None}
 
@@ -145,6 +165,27 @@ def normalise(look):
         if not lk["cycles"] > 0:
             raise ValueError("cycles must be > 0 (or null for off)")
     lk["equalize"] = bool(lk["equalize"])
+    lk["depth_scale"] = float(lk["depth_scale"])
+    if lk["cut"] is not None:
+        c = lk["cut"] = _merge(DEFAULT_CUT, lk["cut"], "cut")
+        c["depth"], c["softness"] = float(c["depth"]), float(c["softness"])
+        if not (0.0 <= c["depth"] <= 1.0 and 0.0 <= c["softness"] <= 1.0) or c["fill"] not in ("black", "white"):
+            raise ValueError("cut: depth and softness must be 0-1, fill black or white")
+        c["keep"] = [_merge(DEFAULT_KEEP, k, f"cut.keep[{i}]") for i, k in enumerate(c["keep"] or [])]
+        for i, k in enumerate(c["keep"]):
+            if k["shape"] not in ("ellipsoid", "box", "cylinder", "cone"):
+                raise ValueError(f"cut.keep[{i}].shape must be ellipsoid, box, cylinder or cone")
+            sz = k["size"]
+            k["size"] = [float(sz)] * 3 if isinstance(sz, (int, float)) else [float(v) for v in sz]
+            if k["at"] is not None and not (isinstance(k["at"], (list, tuple)) and len(k["at"]) == 2):
+                raise ValueError(f"cut.keep[{i}].at must be [x, y] pixels")
+            for key in ("depth", "length", "cone_angle", "lean", "angle", "softness"):
+                k[key] = float(k[key])
+            if (len(k["size"]) != 3 or not all(0.0 < v <= 4.0 for v in k["size"]) or not 0.0 <= k["depth"] <= 1.0
+                    or not 0.5 <= k["cone_angle"] <= 89.5 or not 0.0 <= k["softness"] <= 1.0):
+                raise ValueError(f"cut.keep[{i}]: size above 0 to 4, depth 0-1, cone_angle 0.5-89.5, softness 0-1")
+    if not 0.05 <= lk["depth_scale"] <= 20.0:
+        raise ValueError("depth_scale must be 0.05 to 20")
     o = lk["orientation"]
     if isinstance(o["turns"], bool) or not isinstance(o["turns"], int):
         raise ValueError("orientation.turns must be a whole number of quarter turns")
@@ -179,6 +220,15 @@ def normalise(look):
         if pv is not None and not (isinstance(pv, (list, tuple)) and len(pv) == 2
                                    and all(0.0 <= float(v) <= 1.0 for v in pv)):
             raise ValueError(f"focus[{i}].pivot must be [fx, fy], fractions of the picture (0-1)")
+        if fo["shape"] not in ("plane", "ellipsoid", "box", "cylinder", "cone") or fo["fill"] not in ("shell", "solid"):
+            raise ValueError(f"focus[{i}]: shape must be plane, ellipsoid, box, cylinder or cone; fill shell or solid")
+        sz = fo["size"]
+        sz = [float(sz)] * 3 if isinstance(sz, (int, float)) else [float(v) for v in sz]
+        if len(sz) != 3 or not all(0.0 < v <= 4.0 for v in sz):
+            raise ValueError(f"focus[{i}].size must be one number or [x, y, z], each above 0 and at most 4")
+        fo["size"], fo["length"], fo["cone_angle"] = sz, float(fo["length"]), float(fo["cone_angle"])
+        if not (0.0 <= fo["length"] <= 8.0 and 0.5 <= fo["cone_angle"] <= 89.5):
+            raise ValueError(f"focus[{i}]: length must be 0 (endless) to 8, cone_angle 0.5-89.5 degrees")
     if lk["tilt"] is not None:
         lk["tilt"] = _merge({"normal": [0.0, 1.0, 0.0], "x0": 0.0, "y0": 0.0, "fit": False}, lk["tilt"], "tilt")
     return lk

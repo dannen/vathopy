@@ -116,6 +116,16 @@ def look_from_settings(s, preview=False):
         lk["contours"] = {"cycles": contours, "strength": float(s.get("contour_strength", 0.85)),
                           "width": float(s.get("contour_width", 2.0))}
     lk["supersample"] = 1 if preview else int(s.get("supersample", 1))
+    lk["depth_scale"] = float(s.get("depth_scale", 1.0) or 1.0)
+    keep = [{"depth": float(k["depth"]), "pivot": [float(k.get("x", 0.5)), float(k.get("y", 0.5))],
+             "lean": float(k.get("lean", 0.0)), "angle": float(k.get("angle", 0.0)), "softness": float(k.get("softness", 0.01)),
+             "enabled": bool(k.get("enabled", True)), "locked": bool(k.get("locked", False)),
+             **{key: v for key, v in _shape_from_page(k, "ellipsoid").items() if key != "fill"}}   # always solid
+            for k in (s.get("keep") or [])[:MAX_FOCUS]]
+    cut = float(s.get("cut_depth", 0) or 0)
+    if cut > 0 or keep:
+        lk["cut"] = {"depth": cut, "softness": float(s.get("cut_softness", 0) or 0),
+                     "fill": s.get("cut_fill") or "black", "keep": keep}
     o = s.get("orientation") or {}
     lk["orientation"] = {"turns": int(o.get("turns", 0) or 0), "mirror": bool(o.get("mirror"))}
     style = s.get("focus_style", "off")
@@ -129,7 +139,8 @@ def look_from_settings(s, preview=False):
                         "angle": float(fo.get("angle", 0.0)), "lean": float(fo.get("lean", 0.0)),
                         "reach_w": float(fo.get("reach_w", 0.0)), "reach_h": float(fo.get("reach_h", 0.0)),
                         "reach_edge": float(fo.get("reach_edge", 0.5)), "locked": bool(fo.get("locked", False)),
-                        "pivot": [float(fo["x"]), float(fo["y"])] if "x" in fo and "y" in fo else None}
+                        "pivot": [float(fo["x"]), float(fo["y"])] if "x" in fo and "y" in fo else None,
+                        **_shape_from_page(fo, "plane")}
                        for fo in s["focus"][:MAX_FOCUS]]
     return LOOK.normalise(lk)
 
@@ -166,6 +177,7 @@ def settings_from_look(lk):
             "contour_width": c.get("width", 2.0), "smooth": lk.get("smooth_depth", 0),
             "supersample": lk.get("supersample", 1), "equalize": bool(lk.get("equalize")),
             "orientation": dict(lk.get("orientation") or {"turns": 0, "mirror": False}),
+            "depth_scale": float(lk.get("depth_scale", 1.0)), **_cut_settings(lk),
             **_focus_settings(lk)}
 
 
@@ -178,6 +190,32 @@ def _slider_lean_angle(lean, angle):
     elif angle < -90.0:
         lean, angle = -lean, angle + 180.0
     return lean, angle
+
+
+def _shape_from_page(fo, default):
+    """A focus's or keep shape's shape keys, page -> look (size_x/y/z sliders -> size)."""
+    return {"shape": fo.get("shape") or default, "fill": fo.get("fill") or "shell",
+            "size": [float(fo.get(k, 0.15) or 0.15) for k in ("size_x", "size_y", "size_z")],
+            "length": float(fo.get("length", 0.0) or 0.0), "cone_angle": float(fo.get("cone_angle", 30.0) or 30.0)}
+
+
+def _shape_to_page(fo, default):
+    sz = fo.get("size", 0.15)
+    sz = [sz] * 3 if isinstance(sz, (int, float)) else sz
+    return {"shape": fo.get("shape", default), "fill": fo.get("fill", "shell"),
+            **{k: float(v) for k, v in zip(("size_x", "size_y", "size_z"), sz)},
+            "length": float(fo.get("length", 0.0)), "cone_angle": float(fo.get("cone_angle", 30.0))}
+
+
+def _cut_settings(lk):
+    c = lk.get("cut") or {}
+    return {"cut_depth": float(c.get("depth", 0.0)), "cut_softness": float(c.get("softness", 0.0)),
+            "cut_fill": c.get("fill", "black"),
+            "keep": [{"depth": float(k["depth"]), "x": k.get("pivot", [0.5, 0.5])[0], "y": k.get("pivot", [0.5, 0.5])[1],
+                      "lean": float(k.get("lean", 0.0)), "angle": float(k.get("angle", 0.0)),
+                      "softness": float(k.get("softness", 0.01)), "enabled": bool(k.get("enabled", True)),
+                      "locked": bool(k.get("locked", False)), **_shape_to_page(k, "ellipsoid")}
+                     for k in c.get("keep") or []]}
 
 
 def _focus_settings(lk):
@@ -195,7 +233,7 @@ def _focus_settings(lk):
                                              "reach_w": float(fo.get("reach_w", 0.0)),
                                              "reach_h": float(fo.get("reach_h", 0.0)),
                                              "reach_edge": float(fo.get("reach_edge", 0.5)),
-                                             "locked": bool(fo.get("locked", False)),
+                                             "locked": bool(fo.get("locked", False)), **_shape_to_page(fo, "plane"),
                                              **({"x": fo["pivot"][0], "y": fo["pivot"][1]} if fo.get("pivot") else {})}
                                             for fo in focus]}
 
@@ -346,6 +384,8 @@ def make_handler(maps, favourites, preview_size, auth=None, palettes_dir=None):
                     return self._crop_save(req)
                 if path == "/api/crop_download":
                     return self._crop_download(req)
+                if path == "/api/stl":
+                    return self._stl(req)
                 if path == "/api/export_settings":
                     body = json.dumps(_payload(req), indent=1) + "\n"
                     return self._send(200, body, "application/json",
@@ -389,6 +429,44 @@ def make_handler(maps, favourites, preview_size, auth=None, palettes_dir=None):
             out, _ = render(d, look_from_settings(s))
             return self._send(200, _png16(out, req), "image/png",
                               {"Content-Disposition": f'attachment; filename="{_out_name(req)}.png"'})
+
+        def _stl(self, req):
+            """The map as a 3D-printable STL download: a relief of the depth, or a lithophane of the
+            picture, cropped (if asked) and turned like the picture on the page."""
+            from . import mesh
+            s = req.get("settings", {})
+            o = s.get("orientation") or {}
+            o = {"turns": int(o.get("turns", 0) or 0), "mirror": bool(o.get("mirror"))}
+            depth = maps.depth(req["map"], float(s.get("smooth", 0) or 0))          # rows bottom-up
+            if req.get("mode") == "lithophane":
+                lk = look_from_settings({**s, "orientation": {}})
+                out, _ = render(depth, lk)
+                td = np.clip(VIO.srgb_oetf(out[::-1, :, :3]), 0.0, 1.0)              # the picture, top-down
+            else:
+                td = depth[::-1]
+            crop = req.get("crop") or {}
+            t, r, b, l = (int(crop.get(k, 0) or 0) for k in ("top", "right", "bottom", "left"))
+            h, w = td.shape[:2]
+            if t + b >= h or l + r >= w:
+                raise ValueError("the crop leaves nothing")
+            td = orient(td[t:h - b, l:w - r], o)
+            width_mm = float(req.get("width_mm", 100))
+            cols = min(int(req.get("px") or round(width_mm / 0.2) + 1), td.shape[1])
+            if req.get("mode") == "lithophane":
+                lo, hi = float(req.get("min_mm", 0.8)), float(req.get("max_mm", 3.0))
+                top, base = mesh.lithophane_heights(td, cols, lo, hi), lo
+            else:
+                top = mesh.relief_heights(td, cols, float(req.get("relief_mm", 8)), bool(req.get("invert")))
+                base = float(req.get("base_mm", 2))
+            if not (width_mm > 0 and base >= 0 and cols >= 2):
+                raise ValueError("width and base must be above 0, and at least 2 points across")
+            px_mm = width_mm / (top.shape[1] - 1)
+            verts, faces = mesh.heightfield_mesh(top, px_mm, base)
+            name = f"{_out_name(req)}_{'lithophane' if req.get('mode') == 'lithophane' else 'relief'}.stl"
+            return self._send(200, mesh.stl_bytes(verts, faces), "model/stl",
+                              {"Content-Disposition": f'attachment; filename="{name}"',
+                               "X-Triangles": str(len(faces)), "X-Points": f"{top.shape[1]}x{top.shape[0]}",
+                               "X-Size-MM": f"{width_mm:g}x{px_mm * (top.shape[0] - 1):.1f}x{float(verts[:, 2].max()):.1f}"})
 
         def _read_settings(self):
             """Settings from an uploaded PNG/JPEG/JSON (the request body): the page's own if it carries

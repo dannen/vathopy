@@ -58,12 +58,27 @@ def quarter_steps_or_auto(text):
         raise argparse.ArgumentTypeError("must be 'auto' or 1 to 10 in steps of 0.25") from None
 
 
+SHAPE_FIELDS = ("size", "size_x", "size_y", "size_z", "length", "cone")
+TEXT_FIELDS = ("shape", "fill")
+
+
+def _shape_fields(fo):
+    """size=/size_x= ... and cone= from a spec -> the look's size list and cone_angle."""
+    if any(k in fo for k in ("size", "size_x", "size_y", "size_z")):
+        s = fo.pop("size", 0.15)
+        fo["size"] = [fo.pop(k, s) for k in ("size_x", "size_y", "size_z")]
+    if "cone" in fo:
+        fo["cone_angle"] = fo.pop("cone")
+    return fo
+
+
 def focus_spec(text):
     """argparse type: DEPTH[:WIDTH[:SOFTNESS[:STRENGTH]]] (fractions of the depth range, 0 = far,
     1 = near; strength -1 to 1) or @X,Y[:...] (the depth under that pixel, top-down). Any field can
-    also be given by name, in any order after the first, e.g. 0.6:angle=135:lean=60:width=0.05."""
+    also be given by name, in any order after the first, e.g. 0.6:angle=135:lean=60:width=0.05, or
+    0.5:shape=ellipsoid:size=0.2:fill=solid for a 3D shape."""
     head, *rest = text.split(":")
-    names = ("width", "softness", "strength", "angle", "lean", "reach_w", "reach_h", "reach_edge", "reach")
+    names = ("width", "softness", "strength", "angle", "lean", "reach_w", "reach_h", "reach_edge", "reach") + SHAPE_FIELDS
     try:
         fo = {"at": [float(v) for v in head[1:].split(",")]} if head.startswith("@") else {"depth": float(head)}
         if "at" in fo and len(fo["at"]) != 2:
@@ -75,18 +90,44 @@ def focus_spec(text):
         for t in rest:
             if "=" in t:
                 k, v = t.split("=", 1)
-                if k not in names:
+                if k not in names + TEXT_FIELDS:
                     raise ValueError
-                fo[k] = float(v)
+                fo[k] = v if k in TEXT_FIELDS else float(v)
         if "reach" in fo:                                    # reach= : the same fraction both ways
             r = fo.pop("reach")
             fo.setdefault("reach_w", r); fo.setdefault("reach_h", r)
+        _shape_fields(fo)
         LOOK.normalise({"focus": [fo]})
     except ValueError:
         raise argparse.ArgumentTypeError(
             "must be DEPTH[:WIDTH[:SOFTNESS[:STRENGTH]]] (e.g. 0.8:0.1:0.05:0.6) or @X,Y[:...] (a pixel); "
             "fields can be named, e.g. @410,480:angle=135:lean=60") from None
     return fo
+
+
+def keep_spec(text):
+    """argparse type for --keep: DEPTH or @X,Y (the depth and place under that pixel), then named
+    fields (shape=, size=, size_x/y/z=, length=, cone=, lean=, angle=, softness=, x=, y=): a shape
+    the deletion slab leaves alone."""
+    head, *rest = text.split(":")
+    names = SHAPE_FIELDS + ("lean", "angle", "softness", "x", "y")
+    try:
+        k = {"at": [float(v) for v in head[1:].split(",")]} if head.startswith("@") else {"depth": float(head)}
+        if "at" in k and len(k["at"]) != 2:
+            raise ValueError
+        for t in rest:
+            key, v = t.split("=", 1)
+            if key not in names + ("shape",):
+                raise ValueError
+            k[key] = v if key == "shape" else float(v)
+        if "x" in k or "y" in k:
+            k["pivot"] = [k.pop("x", 0.5), k.pop("y", 0.5)]
+        _shape_fields(k)
+        LOOK.normalise({"cut": {"keep": [k]}})
+    except ValueError:
+        raise argparse.ArgumentTypeError("must be DEPTH or @X,Y followed by named fields, "
+                                         "e.g. @410,480:shape=ellipsoid:size=0.2") from None
+    return k
 
 
 def radius_or_auto(text):
@@ -126,6 +167,11 @@ def _look_from_args(a):
         lk["focus"] = [{"strength": a.focus_strength, **fo} for fo in a.focus]   # a 4th field wins
     if a.base:
         lk["base"] = a.base
+    if a.depth_scale is not None:
+        lk["depth_scale"] = a.depth_scale
+    if a.cut is not None or a.keep:
+        lk["cut"] = {"depth": a.cut if a.cut is not None else 1.0, "softness": a.cut_softness,
+                     "fill": a.cut_fill, "keep": a.keep or []}
     return LOOK.normalise(lk)
 
 
@@ -193,6 +239,37 @@ def cmd_render(a):
               f"{rinfo['seconds']:.2f} s)")
         if rinfo["dead_masks"]:
             print(f"warning: masks with no target: {rinfo['dead_masks']}", file=sys.stderr)
+
+
+def cmd_relief(a):
+    """Depth maps -> 3D-printable STL: a relief (near raised) or, with --lithophane, the rendered look as
+    a lithophane (dark = thick)."""
+    import numpy as np
+    from . import mesh
+    from .engine import orient, render, smooth_depth
+    lk = LOOK.load(a.look) if a.look else LOOK.normalise({})
+    if a.preset:
+        lk["ramp"] = {"preset": a.preset}
+    for src in a.inputs:
+        depth, _ = VIO.load_depth(src)                                  # rows bottom-up
+        w_src = depth.shape[1] if not lk["orientation"]["turns"] % 2 else depth.shape[0]
+        cols = min(a.px or round(a.width_mm / 0.2) + 1, w_src)          # 0.2 mm a point; never more than the map has
+        if a.lithophane:
+            out, _ = render(depth, lk)                                  # the picture, turned as the look says
+            srgb = np.clip(VIO.srgb_oetf(out[::-1, :, :3]), 0.0, 1.0)
+            top, base = mesh.lithophane_heights(srgb, cols, a.min_mm, a.max_mm), a.min_mm
+        else:
+            sm = lk["smooth_depth"] if a.smooth_depth is None else a.smooth_depth
+            if sm > 0:
+                depth = smooth_depth(depth, sm)
+            top = mesh.relief_heights(orient(depth[::-1], lk["orientation"]), cols, a.relief_mm, a.invert)
+            base = a.base_mm
+        px_mm = a.width_mm / (top.shape[1] - 1)
+        verts, faces = mesh.heightfield_mesh(top, px_mm, base)
+        dst = _out_path(src, a.output, len(a.inputs), "_lithophane" if a.lithophane else "_relief", ".stl")
+        mesh.write_stl(dst, verts, faces)
+        print(f"{src} -> {dst}  ({a.width_mm:g} x {px_mm * (top.shape[0] - 1):.1f} x {float(verts[:, 2].max()):.1f} mm, "
+              f"{top.shape[1]}x{top.shape[0]} points, {len(faces):,} triangles, {os.path.getsize(dst) / 1e6:.1f} MB)")
 
 
 def cmd_init(a):
@@ -285,12 +362,45 @@ def main(argv=None):
                         "reach_w=, reach_h=, reach=, reach_edge=); reach confines the focus to an oval "
                         "around the point (half-size as a fraction of the picture), isolating one subject; "
                         "lean (-90 to 90 degrees) tilts the band so it cuts across the scene at an angle, angle "
-                        "(degrees, counter-clockwise from the right) turns it. Repeat for several distances. "
+                        "(degrees, counter-clockwise from the right) turns it. shape=ellipsoid|box|cylinder|cone "
+                        "with size=, size_x/y/z=, length=, cone=, fill=shell|solid makes it a 3D shape. "
+                        "Repeat for several distances. "
                         "With --base BLACK: a white subject on black")
+    r.add_argument("--depth-scale", type=float, metavar="S",
+                   help="how deep the scene is relative to its width, for shape focuses and --keep (default 1)")
+    r.add_argument("--cut", type=float, metavar="C",
+                   help="the deletion slab: remove everything farther than C (0 = far .. 1 = near, as a fraction "
+                        "of the depth range; 1 removes everything but --keep shapes)")
+    r.add_argument("--cut-softness", type=float, default=0.0, metavar="S", help="fade the cut's edge over S (default 0)")
+    r.add_argument("--cut-fill", choices=("black", "white"), default="black", help="what removed parts become")
+    r.add_argument("--keep", type=keep_spec, action="append", metavar="SPEC",
+                   help="a shape the cut leaves alone: DEPTH or @X,Y, then shape=ellipsoid|box|cylinder|cone, "
+                        "size= (or size_x/y/z=), length=, cone=, lean=, angle=, softness=; sizes are fractions of "
+                        "the picture's width. Repeatable; without --cut, everything else is removed")
     r.add_argument("--focus-strength", type=float, default=1.0, metavar="K",
                    help="-1 to 1 (default 1) for every --focus without its own STRENGTH: 1 lifts the "
                         "focus to white, -1 sinks it to black (use with --base WHITE for black on white)")
     r.set_defaults(fn=cmd_render)
+
+    rl = sub.add_parser("relief", help="make a 3D-printable STL: a depth relief, or a lithophane of a look")
+    rl.add_argument("inputs", nargs="+", help="depth maps, near = bright (as for render)")
+    rl.add_argument("-o", "--output", help="output .stl, or a folder for several inputs")
+    rl.add_argument("-l", "--look", help="a look (or a PNG/JPG the GUI saved): its orientation and smoothing, "
+                                         "and for --lithophane the picture itself")
+    rl.add_argument("--preset", choices=list(PRESETS), help="override the look's ramp (for --lithophane)")
+    rl.add_argument("--width-mm", type=float, default=100.0, metavar="MM", help="the print's width (default 100)")
+    rl.add_argument("--px", type=int, metavar="N",
+                    help="points across the width (default one every 0.2 mm, at most the map's own pixels)")
+    rl.add_argument("--relief-mm", type=float, default=8.0, metavar="MM",
+                    help="height from the farthest to the nearest point (default 8)")
+    rl.add_argument("--base-mm", type=float, default=2.0, metavar="MM", help="solid base under the relief (default 2)")
+    rl.add_argument("--invert", action="store_true", help="far raised instead of near (a mould)")
+    rl.add_argument("--smooth-depth", type=float, metavar="R", help="smooth the depth first (px; default the look's)")
+    rl.add_argument("--lithophane", action="store_true",
+                    help="print the rendered look as a lithophane: dark parts thick, light thin, seen lit from behind")
+    rl.add_argument("--min-mm", type=float, default=0.8, metavar="MM", help="lithophane: thinnest (lightest), default 0.8")
+    rl.add_argument("--max-mm", type=float, default=3.0, metavar="MM", help="lithophane: thickest (darkest), default 3")
+    rl.set_defaults(fn=cmd_relief)
 
     pb = sub.add_parser("probe", help="measure a depth map and recommend contour/cycle/smoothing settings")
     pb.add_argument("inputs", nargs="+", help="depth maps, near = bright")

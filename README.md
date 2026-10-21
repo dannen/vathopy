@@ -115,6 +115,64 @@ REJECTED  huge.png        60000 x 60000 pixels; at most 25 megapixels
 REJECTED  link.json       not a regular file (symlinks aren't followed)
 ```
 
+### How it works: the relief and the focal planes
+
+The depth map becomes a **relief**: a surface in 3D whose left-right and up-down are the picture's and whose
+height is the depth (near = high). The palette is painted onto that height, its left end (as the GUI shows a
+swatch) on the nearest parts, its right end on the farthest, so in a plain render brightness means nearness,
+not focus. Cycles repeat the palette through the depth, and the fringes are lines of equal depth.
+
+A **focus** is a slab: a plane with a thickness (Width) and a soft edge (Softness), lying across the relief at
+one depth, or tilted with Lean and Angle. Wherever the relief passes through the slab the picture is lifted to
+white or sunk to black; with the white-on-black style everything else is black, so there bright does mean "in
+focus". That slab is the add-on's Focus & Shape Band; "focal plane" is a good name for it.
+
+vathopy can bend that plane into a **3D shape** (below), and cut the relief away from the far side with the
+**deletion slab**. The relief can also be printed (see 3D printing). Depth from Marigold is relative, not
+measured, so shapes are round in the relief, not in real-world units; Depth scale sets how deep the scene is
+compared with its width.
+
+### Shape focuses
+
+A focus can be a sphere/ellipsoid, a box, a cylinder (a rod) or a double cone instead of a plane, placed at the
+picked point and depth and turned with Lean/Angle (the cylinder's and cone's axis; the box's turn). **Shell**
+lights a skin of the shape Width thick, the focal plane bent into the shape: rings and outlines where the scene
+crosses it. **Solid** lights everything of the scene inside it. Sizes, Width and Softness are fractions of the
+picture's width.
+
+```bash
+vathopy render depth.exr --base BLACK --focus @410,480:shape=ellipsoid:size=0.12:width=0.015 -o out/   # a ring
+vathopy render depth.exr --base BLACK --focus @410,480:shape=box:size_x=0.1:size_y=0.2:size_z=0.1:fill=solid -o out/
+vathopy render depth.exr --base BLACK --focus @410,480:shape=cone:cone=25:lean=60:angle=90 -o out/     # a beam
+vathopy render depth.exr --base BLACK --focus @410,480:shape=cylinder:size=0.05:length=0.6 --depth-scale 2 -o out/
+```
+
+### The deletion slab
+
+`--cut C` removes everything farther than C (0 = far … 1 = near, over the depth range) and turns it black or
+white (`--cut-fill`), softly with `--cut-softness`. At 1 everything goes, except the **keep shapes**: spheres,
+boxes, rods or cones (`--keep`, the same fields as a shape focus) that the cut leaves alone.
+
+```bash
+vathopy render depth.exr --cut 0.4 -o out/                                   # drop the background
+vathopy render depth.exr --cut 1 --keep @950,480:size=0.25 -o out/           # only what's in a sphere around one person
+```
+
+### 3D printing
+
+`vathopy relief` writes a binary STL (millimetres) of a closed solid on a flat base, ready for a slicer:
+
+```bash
+vathopy relief depth.exr -o relief.stl --width-mm 100 --relief-mm 8 --base-mm 2 --smooth-depth 2
+vathopy relief depth.exr -o mould.stl --invert                                # far raised
+vathopy relief depth.exr -o lithophane.stl --lithophane -l saved.png --min-mm 0.8 --max-mm 3
+```
+
+A **relief** raises the near parts `--relief-mm` above the far ones. A **lithophane** prints a rendered look
+(from `-l`: a look, or a PNG the GUI saved) as thickness, dark parts thick and light parts thin, so it shows
+the picture when lit from behind. Points are 0.2 mm apart by default (`--px` sets how many across, never more
+than the map has); a 100 mm print is about 450,000 triangles, 22 MB. The look's orientation is used.
+
 ### Creative focus
 
 Pick the distances that become the subject. Each `--focus` lifts one depth to white (or sinks it to black):
@@ -348,6 +406,16 @@ install -e .`) means no reinstall is needed unless `requirements.txt` changed.
   compared before it's kept. Choosing another depth map sets the crop back to 0, unless the **Lock** box next to
   Reset is ticked; then it's kept (fitted to the new map's size). From Python:
   `vathopy.crop_exr(src, dst, top=1, right=1, bottom=1, left=1)`.
+- **Shapes:** each focus has a shape menu (Plane, Sphere / ellipsoid, Box, Cylinder (rod), Cone) and Shell or
+  Solid; the sliders change with the shape (sizes, radius and length, cone angle). **Depth scale** under the
+  focuses stretches depth for shapes. Highlights tint a shape's region like a plane's.
+- **Cut:** **Delete from far** drags the deletion slab from the farthest depth (0, off) to the nearest (1,
+  everything); Edge softness fades it, and deleted parts become black or white. **Keep a shape**, then click
+  the picture: a sphere there (change it to a box, rod or cone, size and turn it) survives the cut. Keep shapes
+  are cleared when another depth map is chosen, like focuses.
+- **3D print:** Relief or Lithophane, width, points across, relief height and base (or thinnest/thickest),
+  Far raised, and Use the crop; **Download STL** builds it from the map (cropped and turned as the picture is
+  shown) and says its size and triangle count.
 
 ### Probing a depth map for the most detail
 
@@ -427,6 +495,8 @@ Every key is optional; unknown keys are rejected so that typos don't pass silent
 | `areas` | `[]` | `{id, name, enabled, mode: ADD/MERGE/MASK, shape: ELLIPSOID/BOX, position, radius[3], basis[3][3], reach_plus[3], reach_minus[3], strength, falloff, edge, group, mask: {strength, side: HIDE/KEEP, edge, target}}` |
 | `groups` | `{}` | Merge groups: `{"Group 1": {"strength": 1.0, "blend": 0.0}}` |
 | `solo` | `""` | Show only one area (its name) or one band (`"BAND:<id>"`) |
+| `depth_scale` | `1.0` | vathopy: how deep the scene is relative to its width, for shape focuses and keep shapes |
+| `cut` | `null` | vathopy: the deletion slab, `{"depth": 0-1, "softness", "fill": "black"/"white", "keep": [shapes]}` |
 
 Mask targets: `ALL_BANDS`, `ALL_LIGHTS`, `BAND:<id>`, `LIGHT:<area id>`, `GROUP:<name>`.
 See `examples/demo_look.json` and `examples/template_look.json`. The latter was extracted from the

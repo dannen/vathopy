@@ -100,15 +100,19 @@
   main.actual .work { align-items: flex-start; max-width: none; }
   main.actual #view, main.actual #view2, main.actual #pair.on #viewbox { max-width: none; max-height: none; cursor: zoom-out; }
   main #view.picking, main #view2.picking { cursor: crosshair; }
-  #pick, #download, #save_local, #pairbtn, #download2, #save_local2 { display: inline-flex; align-items: center; gap: 7px; }
+  #pick, #pick_keep, #download, #save_local, #pairbtn, #download2, #save_local2 { display: inline-flex; align-items: center; gap: 7px; }
   #download .icon, #save_local .icon, #download2 .icon, #save_local2 .icon { width: 18px; height: 18px; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; fill: none; flex: none; }
-  #pick .plus { width: 20px; height: 20px; stroke: currentColor; stroke-width: 3.2; stroke-linecap: round; flex: none; }
+  #pick .plus, #pick_keep .plus { width: 20px; height: 20px; stroke: currentColor; stroke-width: 3.2; stroke-linecap: round; flex: none; }
   button.ghost[aria-pressed=true] { border-color: var(--accent); color: var(--focus); }
   .band { border: 1px solid var(--line); border-radius: 8px; padding: 2px 8px 8px; margin-top: 8px; }
   .band .head { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; color: var(--dim); }
   .band .head label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
   .band.off .row { opacity: .45; }
-  .band.folded .row { display: none; }
+  .band.folded .row, .band.folded .shaperow { display: none; }
+  .shaperow { display: flex; gap: 6px; margin: 6px 0 2px; }
+  .shaperow select { flex: 1; padding: 3px 6px; }
+  .shaperow select.fill { flex: 0 0 auto; width: auto; }
+  .shaperow[hidden], .shaperow select[hidden] { display: none; }
   h2 button.sec { display: flex; align-items: center; gap: 6px; width: 100%; background: none; border: 0; padding: 2px 0;
     color: inherit; font: inherit; text-transform: inherit; letter-spacing: inherit; cursor: pointer; text-align: left; }
   h2 button.sec:hover, .band .head button.tri:hover { color: var(--text); }
@@ -160,6 +164,12 @@
   #crop_save, #crop_download { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
   #crop_save .icon, #crop_download .icon { width: 16px; height: 16px; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; fill: none; flex: none; }
   button:disabled { opacity: .45; cursor: not-allowed; }
+  .nums { display: grid; grid-template-columns: 1fr 84px; gap: 5px 8px; align-items: center; margin-top: 8px; }
+  .nums input { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px;
+    padding: 4px 6px; font: inherit; font-variant-numeric: tabular-nums; }
+  .nums [hidden] { display: none; }
+  #stl_download { display: inline-flex; align-items: center; gap: 7px; }
+  #stl_download .icon { width: 16px; height: 16px; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; fill: none; }
   @media (max-width: 720px) {
     .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; height: auto; }
     aside { border-right: 0; border-bottom: 1px solid var(--line); }
@@ -219,6 +229,21 @@
       title="Then click the picture: that depth becomes a focus (up to 16). Shift-click to keep picking."><svg class="plus" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2v16M2 10h16"/></svg>Pick a depth</button>
       <span class="note" id="focus_note"></span></div>
     <div id="bands"></div>
+    <div class="row" title="How deep the scene is compared with its width: stretches depth for shape focuses and keep shapes, so a sphere looks round"><label for="depth_scale">Depth scale (shapes)</label><output id="depth_scale_v"></output>
+      <input type="range" id="depth_scale" min="0.1" max="4" step="0.05" value="1"></div>
+
+    <h2>Cut</h2>
+    <div class="note" style="margin-top:0">The deletion slab: everything farther than the slider is removed, all of it at 1.</div>
+    <div class="row"><label for="cut_depth">Delete from far</label><output id="cut_depth_v"></output>
+      <input type="range" id="cut_depth" min="0" max="1" step="0.005" value="0"></div>
+    <div class="row"><label for="cut_softness">Edge softness</label><output id="cut_softness_v"></output>
+      <input type="range" id="cut_softness" min="0" max="0.2" step="0.005" value="0"></div>
+    <div class="inline"><select id="cut_fill" aria-label="What deleted parts become" style="width:auto">
+      <option value="black">Deleted: black</option><option value="white">Deleted: white</option></select>
+      <button class="ghost" id="pick_keep" aria-pressed="false" title="Then click the picture: a shape there (a sphere to start with) is kept from the cut. Shift-click to keep adding.">
+      <svg class="plus" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2v16M2 10h16"/></svg>Keep a shape</button></div>
+    <div class="note" id="keep_note"></div>
+    <div id="keeps"></div>
 
     <h2>Quality</h2>
     <div class="row"><label for="smooth">Smoothing (px)</label><output id="smooth_v"></output>
@@ -250,6 +275,25 @@
       <button class="ghost" id="crop_download" title="Download <map>-cropped.exr to this browser; nothing is written on the server" disabled>
       <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 16.5h12"/></svg>Download EXR</button></div>
     <div class="note" id="crop_note"></div>
+
+    <h2>3D print</h2>
+    <select id="stl_mode" aria-label="What to print">
+      <option value="relief">Relief: the depth, near raised</option>
+      <option value="lithophane">Lithophane: the picture, dark = thick</option></select>
+    <div class="nums">
+      <label for="stl_width">Width (mm)</label><input type="number" id="stl_width" min="5" max="2000" step="1" value="100">
+      <label for="stl_px">Points across</label><input type="number" id="stl_px" min="2" max="2000" step="1" value="501"
+        title="Resolution: 0.2 mm apart suits most printers; never more than the map has">
+      <label for="stl_relief" class="relief-only">Relief height (mm)</label><input type="number" id="stl_relief" class="relief-only" min="0" max="500" step="0.5" value="8">
+      <label for="stl_base" class="relief-only">Base (mm)</label><input type="number" id="stl_base" class="relief-only" min="0" max="100" step="0.5" value="2">
+      <label for="stl_min" class="litho-only">Thinnest (mm)</label><input type="number" id="stl_min" class="litho-only" min="0.2" max="20" step="0.1" value="0.8">
+      <label for="stl_max" class="litho-only">Thickest (mm)</label><input type="number" id="stl_max" class="litho-only" min="0.3" max="50" step="0.1" value="3">
+    </div>
+    <div class="checks"><label class="relief-only"><input type="checkbox" id="stl_invert"> Far raised (a mould)</label>
+      <label title="Print only what the crop above keeps"><input type="checkbox" id="stl_crop" checked> Use the crop</label></div>
+    <div class="inline"><button class="ghost" id="stl_download" title="Download a binary STL (millimetres), turned like the picture">
+      <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 16.5h12"/></svg>Download STL</button></div>
+    <div class="note" id="stl_note"></div>
   </aside>
   <main id="stage"><div class="work">
     <div id="title"></div>
@@ -283,9 +327,12 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-const sliders = ["shift", "cycles", "cycles_fine", "contours", "contour_strength", "contour_width", "smooth", "supersample"];
+const sliders = ["shift", "depth_scale", "cut_depth", "cut_softness", "cycles", "cycles_fine", "contours", "contour_strength", "contour_width", "smooth", "supersample"];
 let palette = "FRINGE";
 const fmt = {
+  depth_scale: (v) => `${(+v).toFixed(2)}×`,
+  cut_depth: (v) => (+v === 0 ? "off" : +v >= 1 ? "everything" : (+v).toFixed(3)),
+  cut_softness: (v) => (+v === 0 ? "hard" : (+v).toFixed(3)),
   shift: (v) => (+v === 0 ? "0" : `${+v > 0 ? "▶ " : "◀ "}${Math.abs(+v)}`),
   cycles: (v) => (+v === 0 ? "off" : (+v).toString()),
   cycles_fine: (v) => (+$("cycles").value === 0 ? "off" : `${+v > 0 ? "+" : +v < 0 ? "−" : "±"}${Math.abs(+v).toFixed(2)} → ${cyclesTotal()}`),
@@ -315,20 +362,39 @@ function setView(v, render = true) {
   for (const b of $("tabs").querySelectorAll("button")) b.setAttribute("aria-selected", b.dataset.view === view);
   if (changed && render) full();
 }
-const bandSliders = [["depth", "Depth", 0, 1, 0.005], ["width", "Width", 0, 0.5, 0.005], ["softness", "Softness", 0, 0.3, 0.005],
-                     ["strength", "Strength", 0, 1, 0.05], ["reach_w", "Reach width", 0, 1, 0.01],
-                     ["reach_h", "Reach height", 0, 1, 0.01], ["reach_edge", "Reach edge", 0, 1, 0.05],
-                     ["lean", "Lean (°)", -90, 90, 1], ["angle", "Angle (°)", -90, 90, 5]];
-const BAND_DEFAULTS = { strength: 1, lean: 0, angle: 0, reach_w: 0, reach_h: 0, reach_edge: 0.5 };   // older looks
+// Focus and keep-shape sliders: [key, label (or label(b)), min, max, step, shown(b) (default: always)].
+const SHAPE_NAMES = { plane: "Plane", ellipsoid: "Sphere / ellipsoid", box: "Box", cylinder: "Cylinder (rod)", cone: "Cone" };
+const isShape = (b) => (b.shape || "plane") !== "plane";
+const sized = (b) => b.shape === "ellipsoid" || b.shape === "box";
+const SHAPE_SLIDERS = [["size_x", (b) => (b.shape === "cylinder" ? "Radius" : "Size: width"), 0.005, 1, 0.005, (b) => sized(b) || b.shape === "cylinder"],
+                       ["size_y", "Size: height", 0.005, 1, 0.005, sized], ["size_z", "Size: depth", 0.005, 1, 0.005, sized],
+                       ["length", "Length", 0, 2, 0.01, (b) => b.shape === "cylinder"],
+                       ["cone_angle", "Cone angle (°)", 1, 89, 1, (b) => b.shape === "cone"]];
+const bandSliders = [["depth", "Depth", 0, 1, 0.005],
+                     ["width", (b) => (isShape(b) ? "Shell thickness" : "Width"), 0, 0.5, 0.005, (b) => !isShape(b) || b.fill !== "solid"],
+                     ["softness", "Softness", 0, 0.3, 0.005], ["strength", "Strength", 0, 1, 0.05], ...SHAPE_SLIDERS,
+                     ["reach_w", "Reach width", 0, 1, 0.01], ["reach_h", "Reach height", 0, 1, 0.01], ["reach_edge", "Reach edge", 0, 1, 0.05],
+                     ["lean", (b) => (isShape(b) ? "Tilt (°)" : "Lean (°)"), -90, 90, 1], ["angle", "Angle (°)", -90, 90, 5]];
+const KEEP_SLIDERS = [["depth", "Depth", 0, 1, 0.005], ...SHAPE_SLIDERS, ["lean", "Tilt (°)", -90, 90, 1],
+                      ["angle", "Angle (°)", -90, 90, 5], ["softness", "Edge softness", 0, 0.2, 0.005]];
+const SHAPE_DEFAULTS = { size_x: 0.15, size_y: 0.15, size_z: 0.15, length: 0, cone_angle: 30 };
+const BAND_DEFAULTS = { strength: 1, lean: 0, angle: 0, reach_w: 0, reach_h: 0, reach_edge: 0.5, ...SHAPE_DEFAULTS };   // older looks
+const KEEP_DEFAULTS = { lean: 0, angle: 0, softness: 0.01, ...SHAPE_DEFAULTS, size_x: 0.1, size_y: 0.1, size_z: 0.1 };
 const bandText = (key, v) => (key === "strength" && +v === 0 ? "0 · no effect"
   : key === "strength" || key === "reach_edge" ? (+v).toFixed(2)
-  : key === "lean" || key === "angle" ? `${+v}°` : (key === "reach_w" || key === "reach_h") && +v === 0 ? "off" : (+v).toFixed(3));
+  : key === "lean" || key === "angle" || key === "cone_angle" ? `${+v}°` : (key === "reach_w" || key === "reach_h") && +v === 0 ? "off"
+  : key === "length" && +v === 0 ? "endless" : (+v).toFixed(3));
 const BAND_TIPS = {
   reach_w: "Confine this focus to an oval around the point you picked: its half-width, as a fraction of the picture (off = everything at that depth)",
   reach_h: "The oval's half-height, as a fraction of the picture (off with width set = a circle)",
   reach_edge: "How soft the oval's edge is: 0 = sharp, 1 = a glow",
   lean: "Tilt the band away from flat, so it cuts across the scene (a shaft of light) through the point you picked; 0 = flat, negative leans the other way, ±90° = upright, a straight stripe that ignores depth",
   angle: "Turns a leaned band around the point you picked: 0° = tips left/right, ±90° = tips up/down; Lean's sign picks which way",
+  size_x: "Half the shape's width (a cylinder's radius), as a fraction of the picture's width",
+  size_y: "Half the shape's height, as a fraction of the picture's width",
+  size_z: "Half the shape's depth, in the same units (Depth scale sets how deep the scene is)",
+  length: "The cylinder's length along its axis; endless = through the whole scene",
+  cone_angle: "Half the cone's opening angle; it's a double cone with its tip at the point you picked",
 };
 // A ◀ and ▶ button either side of every slider, moving it down or up by one step (its own units),
 // as if it had been dragged there and released. A click only moves the slider and its value; nothing
@@ -364,17 +430,25 @@ function addSteppers(root) {
   }
 }
 
-function buildBands() {
-  const box = $("bands");
+// A list of panels (focuses, keep shapes), each with on/off, lock, fold, remove, a shape choice and
+// the sliders its shape uses. o: {box, list, title, colour(i), sliders, defaults, shapes, fill,
+// rebuild, onInput(key), onRemove}.
+function buildPanels(o) {
+  const box = $(o.box);
   box.innerHTML = "";
-  bands.forEach((b, i) => {
+  o.list.forEach((b, i) => {
+    const name = `${o.title} ${i + 1}`;
     const div = document.createElement("div");
     div.className = "band";
     div.innerHTML = `<div class="head"><button type="button" class="tri"></button>`
-      + `<label><input type="checkbox" class="on"> <span class="dot"></span>Focus ${i + 1}</label>`
-      + `<label class="lock" title="Lock this focus's sliders so they can't be changed by accident"><input type="checkbox" class="lockbox"> Lock</label>`
-      + `<span><button type="button" class="fold"></button><button type="button" class="remove" title="Remove">✕</button></span></div>`;
+      + `<label><input type="checkbox" class="on"> <span class="dot"></span>${name}</label>`
+      + `<label class="lock" title="Lock these sliders so they can't be changed by accident"><input type="checkbox" class="lockbox"> Lock</label>`
+      + `<span><button type="button" class="fold"></button><button type="button" class="remove" title="Remove">✕</button></span></div>`
+      + `<div class="shaperow"><select class="shape" aria-label="${name} shape"></select>`
+      + `<select class="fill" aria-label="${name} fill"><option value="shell">Shell</option><option value="solid">Solid</option></select></div>`;
     b.open ??= true;
+    b.shape ??= o.shapes[0];
+    b.fill ??= "shell";
     const fold = div.querySelector(".fold"), tri = div.querySelector(".tri");
     const showFold = () => {
       fold.textContent = (+b.depth).toFixed(3);
@@ -387,42 +461,50 @@ function buildBands() {
     };
     fold.onclick = tri.onclick = () => { b.open = !b.open; showFold(); };
     showFold();
-    const colour = FOCUS_COLOURS[i % FOCUS_COLOURS.length];      // its tint in the Highlights view
+    const colour = o.colour(i);
     div.querySelector(".dot").style.background = colour;
-    div.querySelector(".dot").title = "Its colour in the Highlights view";
     div.style.borderColor = colour;
     div.style.background = colour + "1f";                        // the same colour, faint
     const on = div.querySelector("input.on");
     b.enabled ??= true;
     on.checked = b.enabled;
-    on.setAttribute("aria-label", `Focus ${i + 1} on`);
+    on.setAttribute("aria-label", `${name} on`);
     div.classList.toggle("off", !b.enabled);
     on.onchange = () => { b.enabled = on.checked; div.classList.toggle("off", !b.enabled); full(); };
+    const shape = div.querySelector("select.shape"), fill = div.querySelector("select.fill");
+    for (const k of o.shapes) shape.add(new Option(SHAPE_NAMES[k], k));
+    shape.value = b.shape; fill.value = b.fill;
+    fill.hidden = !o.fill || !isShape(b);
+    shape.onchange = () => { b.shape = shape.value; o.rebuild(); full(); };
+    fill.onchange = () => { b.fill = fill.value; o.rebuild(); full(); };
+    if (o.shapes.length < 2) div.querySelector(".shaperow").hidden = true;
     const lock = div.querySelector("input.lockbox");
     b.locked ??= false;
     lock.checked = b.locked;
-    lock.setAttribute("aria-label", `Lock focus ${i + 1}`);
-    const applyLock = () => {                       // sliders and remove; on/off and folding stay usable
-      for (const el of div.querySelectorAll("input[type=range], button.remove, button.step")) el.disabled = b.locked;
+    lock.setAttribute("aria-label", `Lock ${name}`);
+    const applyLock = () => {                       // sliders, shape and remove; on/off and folding stay usable
+      for (const el of div.querySelectorAll("input[type=range], button.remove, button.step, select")) el.disabled = b.locked;
       div.classList.toggle("locked", b.locked);
     };
     lock.onchange = () => { b.locked = lock.checked; applyLock(); };
-    div.querySelector(".remove").onclick = () => { bands.splice(i, 1); buildBands(); setView(view, false); full(); };
-    for (const [key, label, min, max, step] of bandSliders) {
+    div.querySelector(".remove").onclick = () => { o.list.splice(i, 1); o.rebuild(); o.onRemove?.(); full(); };
+    for (const [key, labelOf, min, max, step, shown] of o.sliders) {
+      b[key] ??= o.defaults[key];
+      if (shown && !shown(b)) continue;
+      const label = typeof labelOf === "function" ? labelOf(b) : labelOf;
       const row = document.createElement("div");
       row.className = "row";
       row.innerHTML = `<label></label><output></output><input type="range" min="${min}" max="${max}" step="${step}">`;
       row.querySelector("label").textContent = label;
       const input = row.querySelector("input"), out = row.querySelector("output");
-      b[key] ??= BAND_DEFAULTS[key];
       input.value = b[key]; out.textContent = bandText(key, b[key]);
       if (BAND_TIPS[key]) { input.title = BAND_TIPS[key]; row.querySelector("label").title = BAND_TIPS[key]; }
-      input.setAttribute("aria-label", `Focus ${i + 1} ${label}`);
+      input.setAttribute("aria-label", `${name} ${label}`);
       input.style.accentColor = colour; out.style.color = colour;
       input.addEventListener("input", () => {
         b[key] = +input.value; out.textContent = bandText(key, input.value);
         if (key === "depth") showFold();
-        if (key !== "strength") setView("highlight", false);   // where it lands; strength only shows in the result
+        o.onInput?.(key);
         preview();
       });
       input.addEventListener("change", full);
@@ -432,7 +514,20 @@ function buildBands() {
     applyLock();
     box.appendChild(div);
   });
+}
+function buildBands() {
+  buildPanels({ box: "bands", list: bands, title: "Focus", colour: (i) => FOCUS_COLOURS[i % FOCUS_COLOURS.length],
+                sliders: bandSliders, defaults: BAND_DEFAULTS, shapes: Object.keys(SHAPE_NAMES), fill: true,
+                rebuild: buildBands, onRemove: () => setView(view, false),
+                onInput: (key) => { if (key !== "strength") setView("highlight", false); } });   // strength only shows in the result
+  for (const d of $("bands").querySelectorAll(".dot")) d.title = "Its colour in the Highlights view";
   $("focus_note").textContent = bands.length ? "" : "then click the picture";
+}
+// Keep shapes: places the deletion slab leaves alone.
+let keeps = [];
+function buildKeeps() {
+  buildPanels({ box: "keeps", list: keeps, title: "Keep", colour: () => "#4fb3a9", sliders: KEEP_SLIDERS,
+                defaults: KEEP_DEFAULTS, shapes: ["ellipsoid", "box", "cylinder", "cone"], fill: false, rebuild: buildKeeps });
 }
 
 // Cycles as rendered: the 0.25-step slider plus the fine one (Cycles at 0 stays off).
@@ -448,7 +543,7 @@ function setCycles(c) {
 }
 function settings() {
   const s = { palette, invert: $("invert").checked, equalize: $("equalize").checked,
-              focus_style: $("focus_style").value, focus: bands };
+              focus_style: $("focus_style").value, focus: bands, keep: keeps, cut_fill: $("cut_fill").value };
   for (const k of sliders) s[k] = parseFloat($(k).value);
   s.cycles = cyclesTotal(); delete s.cycles_fine;
   s.orientation = { ...orientation };
@@ -580,7 +675,7 @@ async function init() {
   showTitle();
   buildSwatches(pals);
   addSteppers(document);
-  buildBands();
+  buildBands(); buildKeeps();
   showValues();
   await loadLooks();
   if (maps.maps.length) full(); else $("empty").textContent = "No depth maps (.exr) in " + maps.folder;
@@ -606,7 +701,7 @@ $("map").addEventListener("change", () => {
   setOrientation({}, false);                        // a new map starts the right way up
   mapSize = null; showCrop();                       // the new map's size comes with its render
   showTitle();
-  bands = []; buildBands(); setPicking(false); setView("result", false);   // focus depths belong to the old map
+  bands = []; buildBands(); keeps = []; buildKeeps(); setPicking(false); setView("result", false);   // their depths belong to the old map
   full();
 });
 $("refresh").addEventListener("click", async () => {
@@ -628,12 +723,21 @@ $("pairbtn").onclick = () => {
   full();
 };
 const onPicture = async (ev) => {
-  if ($("pick").getAttribute("aria-pressed") !== "true") { $("stage").classList.toggle("actual"); return; }
+  if (!picking) { $("stage").classList.toggle("actual"); return; }
+  const target = picking;
   const r = ev.currentTarget.getBoundingClientRect();     // either picture: same map, same place
   const [x, y] = mapPoint((ev.clientX - r.left) / r.width, (ev.clientY - r.top) / r.height);
   if (!ev.shiftKey) setPicking(false);
   try {
     const j = await getJSON("/api/depth_at", { map: $("map").value, settings: settings(), x, y });
+    if (target === "keep") {
+      if (keeps.length >= MAX_FOCUS) { $("keep_note").textContent = `${MAX_FOCUS} is the most: remove one first`; return; }
+      if (keeps.length >= 3) for (const o of keeps) o.open = false;
+      keeps.push({ shape: "ellipsoid", depth: +j.depth.toFixed(3), x: +x.toFixed(4), y: +y.toFixed(4), enabled: true, open: true });
+      $("keep_note").textContent = +$("cut_depth").value ? "" : "it shows once Delete from far is above 0";
+      buildKeeps(); full();
+      return;
+    }
     if (bands.length >= MAX_FOCUS) { $("focus_note").textContent = `${MAX_FOCUS} is the most: remove one first`; return; }
     if (bands.length >= 3) for (const o of bands) o.open = false;   // keep the list short: only the new one open
     bands.push({ depth: +j.depth.toFixed(3), width: 0.08, softness: 0.04, strength: 1, lean: 0, angle: 0,
@@ -644,11 +748,17 @@ const onPicture = async (ev) => {
 };
 $("view").addEventListener("click", onPicture);
 $("view2").addEventListener("click", onPicture);
-function setPicking(on) {
-  $("pick").setAttribute("aria-pressed", on);
-  for (const id of ["view", "view2"]) $(id).classList.toggle("picking", on);
+// Picking: false, or what a click on the picture adds ("focus" or "keep").
+let picking = false;
+function setPicking(on, target = "focus") {
+  picking = on ? target : false;
+  $("pick").setAttribute("aria-pressed", picking === "focus");
+  $("pick_keep").setAttribute("aria-pressed", picking === "keep");
+  for (const id of ["view", "view2"]) $(id).classList.toggle("picking", !!picking);
 }
-$("pick").onclick = () => setPicking($("pick").getAttribute("aria-pressed") !== "true");
+$("pick").onclick = () => setPicking(picking !== "focus", "focus");
+$("pick_keep").onclick = () => setPicking(picking !== "keep", "keep");
+$("cut_fill").addEventListener("change", full);
 $("focus_style").addEventListener("change", full);
 for (const b of $("tabs").querySelectorAll("button")) b.onclick = () => setView(b.dataset.view);
 document.addEventListener("keydown", (ev) => {
@@ -724,6 +834,8 @@ function applySettings(s, name) {
   setCycles(+s.cycles || 0);
   $("focus_style").value = s.focus_style || "off";
   bands = (s.focus || []).map((b) => ({ ...b, open: s.focus.length <= 3 })); buildBands(); setView("result", false);
+  keeps = (s.keep || []).map((k) => ({ ...k, open: s.keep.length <= 3 })); buildKeeps();
+  $("cut_fill").value = s.cut_fill || "black";
   setOrientation(s.orientation || {}, false);
   showValues(); if (name) $("name").value = name; full();
 }
@@ -988,6 +1100,36 @@ $("theme").onclick = () => {
 try { const t = localStorage.getItem(THEME_KEY); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch { /* system */ }
 window.matchMedia && matchMedia("(prefers-color-scheme: light)").addEventListener?.("change", showTheme);
 showTheme();
+
+// 3D print: an STL of the depth (relief) or the picture (lithophane), cropped and turned as shown.
+function showStlMode() {
+  const litho = $("stl_mode").value === "lithophane";
+  for (const el of document.querySelectorAll(".relief-only")) el.hidden = litho;
+  for (const el of document.querySelectorAll(".litho-only")) el.hidden = !litho;
+}
+$("stl_mode").onchange = showStlMode;
+showStlMode();
+$("stl_download").onclick = async () => {
+  const btn = $("stl_download");
+  btn.disabled = true; $("stl_note").textContent = "building the mesh…";
+  try {
+    const r = await fetch("/api/stl", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ map: $("map").value, settings: settings(), name: $("name").value, mode: $("stl_mode").value,
+                             width_mm: +$("stl_width").value, px: +$("stl_px").value, relief_mm: +$("stl_relief").value,
+                             base_mm: +$("stl_base").value, min_mm: +$("stl_min").value, max_mm: +$("stl_max").value,
+                             invert: $("stl_invert").checked, crop: $("stl_crop").checked ? crop : null }) });
+    if (!r.ok) throw new Error((await r.json()).error);
+    const name = (r.headers.get("Content-Disposition") || "").match(/filename="([^"]+)"/)?.[1] || "vathopy.stl";
+    const blob = await r.blob(), url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    const [w, h, z] = (r.headers.get("X-Size-MM") || "").split("x");
+    $("stl_note").textContent = `Downloaded ${name}: ${w} × ${h} × ${z} mm, ${(+r.headers.get("X-Triangles")).toLocaleString()} triangles, `
+      + `${(blob.size / 1e6).toFixed(1)} MB`;
+  } catch (e) { $("stl_note").textContent = "STL failed: " + e.message; }
+  finally { btn.disabled = false; }
+};
 
 // The panel's side of the picture, remembered for this browser session.
 const SIDE_KEY = "vathopy.side";

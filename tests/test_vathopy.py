@@ -437,10 +437,18 @@ def test_gui_settings_round_trip_and_api(tmp_path):
          "contour_strength": 0.5, "contour_width": 3, "smooth": 4, "supersample": 3,
          "focus_style": "black_on_white", "focus": [{"depth": 0.4, "width": 0.08, "softness": 0.04, "strength": 0.6,
                                                      "enabled": True, "angle": 45.0, "lean": 30.0, "x": 0.25, "y": 0.75,
-                                                     "reach_w": 0.2, "reach_h": 0.4, "reach_edge": 0.7, "locked": True},
+                                                     "reach_w": 0.2, "reach_h": 0.4, "reach_edge": 0.7, "locked": True,
+                                                     "shape": "cylinder", "fill": "solid", "size_x": 0.2, "size_y": 0.15,
+                                                     "size_z": 0.15, "length": 0.5, "cone_angle": 30.0},
                                                     {"depth": 0.8, "width": 0.05, "softness": 0.02, "strength": 1.0,
                                                      "enabled": False, "angle": 0.0, "lean": 0.0,
-                                                     "reach_w": 0.0, "reach_h": 0.0, "reach_edge": 0.5, "locked": False}]}
+                                                     "reach_w": 0.0, "reach_h": 0.0, "reach_edge": 0.5, "locked": False,
+                                                     "shape": "plane", "fill": "shell", "size_x": 0.15, "size_y": 0.15,
+                                                     "size_z": 0.15, "length": 0.0, "cone_angle": 30.0}],
+         "depth_scale": 1.5, "cut_depth": 0.3, "cut_softness": 0.02, "cut_fill": "white",
+         "keep": [{"depth": 0.6, "x": 0.4, "y": 0.6, "lean": 10.0, "angle": 20.0, "softness": 0.01, "enabled": True,
+                   "locked": False, "shape": "cone", "fill": "shell", "size_x": 0.1, "size_y": 0.1, "size_z": 0.1,
+                   "length": 0.0, "cone_angle": 25.0}]}
     lk = gui.look_from_settings(s)
     lk["smooth_depth"] = 4.0
     back = gui.settings_from_look(lk)
@@ -767,3 +775,87 @@ def test_orientation_turns_and_mirrors_the_finished_picture():
     assert lk["orientation"] == {"turns": 3, "mirror": True}
     assert gui.settings_from_look(lk)["orientation"] == {"turns": 3, "mirror": True}
     assert gui.highlight(d, lk).shape[:2] == (8, 5)                   # the tints turn with the picture
+
+
+def test_shape_focuses_cut_the_relief_where_geometry_says():
+    from vathopy.engine import focus_weights, render
+    H, W = 120, 160
+    d = np.full((H, W), 0.5, np.float32)                       # a flat wall halfway into the window
+    yy, xx = np.mgrid[0:H, 0:W]
+    r = np.hypot(xx + 0.5 - W / 2, yy + 0.5 - H / 2) / W       # distance from the centre, in picture widths
+
+    def weight(**fo):
+        fo = {"depth": 0.5, "width": 0.02, "softness": 0.001, "pivot": [0.5, 0.5], **fo}
+        return focus_weights(d, {"window": [0.0, 1.0], "focus": [fo]})[0][::-1]   # top-down
+
+    ring = weight(shape="ellipsoid", size=0.2)                 # a sphere centred on the wall: a ring of radius 0.2
+    assert ring[np.abs(r - 0.2) < 0.004].min() > 0.9
+    assert ring[(r < 0.17) | (r > 0.23)].max() < 0.05
+    disc = weight(shape="ellipsoid", size=0.2, fill="solid")
+    assert disc[r < 0.19].min() > 0.99 and disc[r > 0.21].max() < 0.01
+    box = weight(shape="box", size=[0.1, 0.05, 0.5], fill="solid")   # half extents: a 0.2 x 0.1 rectangle
+    inside = (np.abs(xx + 0.5 - W / 2) / W < 0.095) & (np.abs(yy + 0.5 - H / 2) / W < 0.045)
+    outside = (np.abs(xx + 0.5 - W / 2) / W > 0.105) | (np.abs(yy + 0.5 - H / 2) / W > 0.055)
+    assert box[inside].min() > 0.99 and box[outside].max() < 0.01
+    rod = weight(shape="cylinder", size=0.1, fill="solid")     # axis towards the viewer: a disc
+    assert rod[r < 0.09].min() > 0.99 and rod[r > 0.11].max() < 0.01
+    cone = weight(shape="cone", depth=0.3, cone_angle=45.0)    # apex 0.2 behind the wall, 45 degrees: ring 0.2
+    assert cone[np.abs(r - 0.2) < 0.004].min() > 0.9 and cone[r < 0.15].max() < 0.05
+    # depth_scale stretches depth: the same cone with depth twice as deep meets the wall at radius 0.4
+    lk = {"window": [0.0, 1.0], "depth_scale": 2.0,
+          "focus": [{"depth": 0.3, "width": 0.02, "softness": 0.001, "shape": "cone", "cone_angle": 45.0}]}
+    far_ring = focus_weights(d, lk)[0][::-1]
+    assert far_ring[np.abs(r - 0.4) < 0.004].min() > 0.9
+    # in the picture: lifted to white on black where the ring is
+    out, _ = render(d, {"window": [0.0, 1.0], "base": "BLACK", "focus": [{"depth": 0.5, "width": 0.02, "softness": 0.001,
+                                                                          "shape": "ellipsoid", "size": 0.2}]})
+    assert out[::-1][np.abs(r - 0.2) < 0.003, 0].min() > 0.9 and out[::-1][r < 0.15, 0].max() < 0.05
+    with pytest.raises(ValueError):
+        vathopy.look.normalise({"focus": [{"depth": 0.5, "shape": "torus"}]})
+
+
+def test_deletion_slab_removes_far_depths_except_kept_shapes():
+    from vathopy.engine import render
+    H, W = 100, 100
+    d = np.tile(np.linspace(0.0, 1.0, W, dtype=np.float32), (H, 1))     # far on the left, near on the right
+    base = {"window": [0.0, 1.0], "ramp": {"preset": "BLACK_TO_WHITE"}}
+    plain, _ = render(d, base)
+    half, _ = render(d, {**base, "cut": {"depth": 0.5, "fill": "white"}})
+    t = (np.arange(W) + 0.0) / (W - 1)
+    assert np.all(half[:, t < 0.5, :3] == 1.0) and np.array_equal(half[:, t > 0.5], plain[:, t > 0.5])
+    all_gone, _ = render(d, {**base, "cut": {"depth": 1.0}})
+    assert np.all(all_gone[..., :3] == 0.0)                             # dragged to the nearest: nothing left
+    # a kept sphere around the left-middle survives the full cut
+    keep = {"shape": "ellipsoid", "depth": 0.25, "pivot": [0.25, 0.5], "size": 0.1, "softness": 0.001}
+    kept, _ = render(d, {**base, "cut": {"depth": 1.0, "keep": [keep]}})
+    yy, xx = np.mgrid[0:H, 0:W]
+    near_centre = np.hypot(xx + 0.5 - 25, yy + 0.5 - 50) < 3            # where the wall passes through the sphere
+    assert np.array_equal(kept[near_centre], plain[near_centre]) and np.all(kept[:, 70:, :3] == 0.0)
+    nothing, _ = render(d, {**base, "cut": {"depth": 0.0}})
+    assert np.array_equal(nothing, plain)
+
+
+def test_heightfield_mesh_is_a_closed_solid_with_the_right_volume(tmp_path):
+    from vathopy import mesh
+    rng = np.random.default_rng(5)
+    top = rng.random((7, 9)) * 3.0
+    v, f = mesh.heightfield_mesh(top, px_mm=0.5, base_mm=2.0)
+    assert len(f) == mesh.triangle_count(7, 9) and mesh.check_closed(f)
+    # each top triangle stands on the base as a prism: projected area x mean height
+    tri = v[f[: 2 * 6 * 8]].astype(np.float64)
+    e1, e2 = tri[:, 1, :2] - tri[:, 0, :2], tri[:, 2, :2] - tri[:, 0, :2]
+    area = 0.5 * np.abs(e1[:, 0] * e2[:, 1] - e1[:, 1] * e2[:, 0])
+    assert mesh.volume(v, f) == pytest.approx((area * tri[:, :, 2].mean(axis=1)).sum(), rel=1e-5)
+    assert mesh.volume(*mesh.heightfield_mesh(np.zeros((3, 4)), 1.0, 2.0)) == pytest.approx(2.0 * 2 * 3)
+    data = mesh.stl_bytes(v, f)
+    assert len(data) == 84 + 50 * len(f) and int(np.frombuffer(data[80:84], "<u4")[0]) == len(f)
+    back = np.frombuffer(data[84:], dtype=[("n", "<f4", 3), ("v", "<f4", (3, 3)), ("attr", "<u2")])
+    assert np.allclose(back["v"], v[f]) and np.allclose(np.linalg.norm(back["n"], axis=1), 1.0, atol=1e-5)
+    # a depth relief: near raised; a lithophane: dark thick, within its range
+    depth = np.tile(np.linspace(0, 1, 40, dtype=np.float32), (20, 1))
+    h = mesh.relief_heights(depth, 20, relief_mm=5.0)
+    assert h.shape == (10, 20) and h[:, 0].max() < 0.5 and h[:, -1].min() > 4.5
+    lit = mesh.lithophane_heights(np.dstack([depth] * 3), 20, 0.8, 3.0)
+    assert lit.min() >= 0 and lit.max() <= 2.2 + 1e-6 and lit[:, 0].mean() > lit[:, -1].mean()
+    with pytest.raises(ValueError):
+        mesh.heightfield_mesh(np.zeros((1500, 1500)), 0.1, 1.0)

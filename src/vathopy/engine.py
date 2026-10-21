@@ -378,7 +378,9 @@ def sum_prepare(lk, shape, px, py, pw, ph, mid, s_eff):
     return {"recs": recs, "lights": lights, "px": px, "py": py, "dead": [m["name"] for m, _ in plan["dead"]]}
 
 
-def sum_compute(prep, f, base):
+def sum_compute(prep, f, base, extra=()):
+    """The bands and areas summed over ``base``; ``extra``: precomputed terms (vathopy's shape
+    focuses, strength x weight) added to the same sum."""
     w_cache = {}
 
     def w_of(key):
@@ -449,6 +451,8 @@ def sum_compute(prep, f, base):
                 return (a * r["gs"]).astype(np.float32)
         term = PAR.map_rows(chunk, h_)
         acc = term if acc is None else np.add(acc, term, out=acc)
+    for term in extra:
+        acc = term.copy() if acc is None else np.add(acc, term, out=acc)
     if acc is None:
         return base
 
@@ -502,6 +506,8 @@ def focus_bands(focus, lo, hi, s_eff, mid, pw, ph):
     span = (hi - lo) * s_eff
     out = []
     for i, fo in enumerate(focus):
+        if is_shape(fo):
+            continue                                     # shapes are weighed by focus_shape_weight
         z = (lo + float(fo["depth"]) * (hi - lo) - mid) * s_eff
         fx, fy = fo.get("pivot") or (0.5, 0.5)
         a, le = math.radians(float(fo.get("angle", 0.0))), math.radians(float(fo.get("lean", 0.0)))
@@ -531,7 +537,8 @@ def focus_reach_areas(focus, lo, hi, s_eff, mid, pw, ph):
         rw, rh = rw or rh * ph / pw, rh or rw * pw / ph                  # one given: a circle
         z = (lo + float(fo["depth"]) * (hi - lo) - mid) * s_eff
         fx, fy = fo.get("pivot") or (0.5, 0.5)
-        rz = max((float(fo["width"]) / 2 + float(fo["softness"])) * span * 4.0, 1e-3)
+        # a band: deep enough for the band and its softness; a shape: every depth (it has its own extent)
+        rz = max(span * 4.0 if is_shape(fo) else (float(fo["width"]) / 2 + float(fo["softness"])) * span * 4.0, 1e-3)
         out.append(_merge(DEFAULT_AREA, {
             "id": f"focusreach{i + 1}", "name": f"focusreach{i + 1}", "enabled": bool(fo["enabled"]),
             "mode": "MASK", "shape": "ELLIPSOID",
@@ -539,6 +546,118 @@ def focus_reach_areas(focus, lo, hi, s_eff, mid, pw, ph):
             "mask": {"strength": 1.0, "side": "KEEP", "edge": float(fo.get("reach_edge", 0.5)),
                      "target": f"BAND:focus{i + 1}"}}, "focus"))
     return out
+
+
+# --- shape focuses (vathopy only) ------------------------------------------------------------
+#
+# A focus can be a 3D shape instead of a plane: a sphere/ellipsoid, box, cylinder or (double) cone,
+# placed in the relief at the picked point and depth. Space is normalised so shapes look like what
+# they are: x and y in fractions of the picture's width (centred, y up), z = depth as a fraction of
+# the window (0 far, 1 near) x the look's depth_scale (how deep the scene is relative to its width).
+# Shell: the band's profile around the shape's surface (thickness = width, edge = softness, in
+# fractions of the picture width): a focal plane bent into the shape. Solid: everything inside,
+# fading out over softness.
+
+SHAPES = ("plane", "ellipsoid", "box", "cylinder", "cone")
+
+
+def is_shape(fo):
+    return fo.get("shape", "plane") != "plane"
+
+
+def shape_axes(lean, angle):
+    """An orthonormal frame (x', y', z') from a focus's lean/angle: z' is the band normal's direction
+    (towards the viewer when lean is 0); at lean 0, angle turns x'/y' in the picture's plane."""
+    le, a = math.radians(lean), math.radians(angle)
+    z = np.array([math.sin(le) * math.cos(a), math.sin(le) * math.sin(a), math.cos(le)])
+    x = np.array([math.cos(le) * math.cos(a), math.cos(le) * math.sin(a), -math.sin(le)])
+    return x, np.cross(z, x), z
+
+
+def shape_distance(q, fo):
+    """Signed distance (negative inside) of local points ``q`` (..., 3) to the focus's shape."""
+    qx, qy, qz = q[..., 0], q[..., 1], q[..., 2]
+    sx, sy, sz = (max(float(v), 1e-4) for v in fo["size"])
+    kind = fo["shape"]
+    if kind == "ellipsoid":                              # a scaled sphere: exact for a sphere
+        k = np.sqrt((qx / sx) ** 2 + (qy / sy) ** 2 + (qz / sz) ** 2)
+        return (k - 1.0) * min(sx, sy, sz)
+    if kind == "box":                                    # size = half extents
+        dx, dy, dz = np.abs(qx) - sx, np.abs(qy) - sy, np.abs(qz) - sz
+        out = np.sqrt(np.maximum(dx, 0) ** 2 + np.maximum(dy, 0) ** 2 + np.maximum(dz, 0) ** 2)
+        return out + np.minimum(np.maximum(np.maximum(dx, dy), dz), 0.0)
+    if kind == "cylinder":                               # radius sx around z'; length 0 = endless
+        radial = np.sqrt(qx * qx + qy * qy) - sx
+        half = float(fo["length"]) / 2.0
+        if half <= 0:
+            return radial
+        along = np.abs(qz) - half
+        return (np.sqrt(np.maximum(radial, 0) ** 2 + np.maximum(along, 0) ** 2)
+                + np.minimum(np.maximum(radial, along), 0.0))
+    if kind == "cone":                                   # double cone, apex at the point, axis z'
+        t = math.radians(min(max(float(fo["cone_angle"]), 0.5), 89.5))
+        return np.sqrt(qx * qx + qy * qy) * math.cos(t) - np.abs(qz) * math.sin(t)
+    raise ValueError(f"unknown focus shape {kind!r}")
+
+
+def focus_shape_weight(f, fo, reach, lo, hi, pw, ph, px, py, mid, s_eff, depth_scale):
+    """A shape focus's weight 0..1 over the remapped depth ``f`` (rows bottom-up, like px/py)."""
+    h, w = f.shape
+    fx, fy = fo.get("pivot") or (0.5, 0.5)
+    ds = float(depth_scale)
+    centre = np.array([float(fx) - 0.5, (0.5 - float(fy)) * ph / pw, float(fo["depth"]) * ds])
+    axes = np.stack(shape_axes(float(fo.get("lean", 0.0)), float(fo.get("angle", 0.0))))
+    X = (px / np.float32(pw)).astype(np.float64)
+    width, soft = max(float(fo["width"]), 0.0), max(float(fo["softness"]), MIN_BAND_SOFTNESS_M)
+    lut = band_lut("LINEAR")
+    m = (-(width / 2 + soft), -width / 2, width / 2, width / 2 + soft)
+    span = max(hi - lo, 1e-12)
+
+    def chunk(r0, r1):
+        Y = (py[r0:r1] / np.float32(pw)).astype(np.float64)
+        Z = (f[r0:r1].astype(np.float64) - lo) / span * ds
+        P = np.stack(np.broadcast_arrays(X[None, :], Y[:, None], Z), axis=-1) - centre
+        d = shape_distance(P @ axes.T, fo)
+        if fo["fill"] == "solid":
+            u = np.clip(d / soft, 0.0, 1.0)
+            return (1.0 - u * u * (3.0 - 2.0 * u)).astype(np.float32)
+        return apply_lut(band_u_slice(d, m, max(soft, BAND_T_MIN_M)).astype(np.float32), lut, True)
+    wt = PAR.map_rows(chunk, h)
+    if reach is not None:
+        wt = (wt * area_weight(area_params(reach, px, py, pw, ph, mid, s_eff), f)).astype(np.float32)
+    return wt
+
+
+def cut_weight(f, cut, lo, hi, pw, ph, px, py, mid, s_eff, depth_scale):
+    """How much of each pixel the deletion slab removes, 0..1: everything farther than cut["depth"]
+    (fading back over its softness), less what its keep shapes hold on to."""
+    c, soft = float(cut["depth"]), float(cut["softness"])
+    span = max(hi - lo, 1e-12)
+
+    def chunk(r0, r1):
+        t = (f[r0:r1].astype(np.float64) - lo) / span                  # 0 far .. 1 near
+        if c >= 1.0:
+            return np.ones(t.shape, np.float32)
+        if soft <= 0.0:
+            return (t < c).astype(np.float32)
+        u = np.clip((t - c) / soft, 0.0, 1.0)
+        return (1.0 - u * u * (3.0 - 2.0 * u)).astype(np.float32)
+    gone = PAR.map_rows(chunk, f.shape[0])
+    for k in cut["keep"]:
+        if k["enabled"]:
+            fo = {**k, "fill": "solid", "width": 0.0}
+            gone *= np.float32(1.0) - focus_shape_weight(f, fo, None, lo, hi, pw, ph, px, py, mid, s_eff, depth_scale)
+    return gone
+
+
+def apply_cut(out, f, cut, lo, hi, pw, ph, px, py, mid, s_eff, depth_scale):
+    """The picture with the deletion slab's pixels turned black or white (alpha kept)."""
+    if float(cut["depth"]) <= 0.0:
+        return out
+    g = cut_weight(f, cut, lo, hi, pw, ph, px, py, mid, s_eff, depth_scale)[..., None]
+    col = np.float32(1.0 if cut["fill"] == "white" else 0.0)
+    rgb = out[..., :3] * (np.float32(1.0) - g) + col * g
+    return np.concatenate([rgb, out[..., 3:]], axis=-1).astype(np.float32) if out.shape[-1] > 3 else rgb.astype(np.float32)
 
 
 def focus_weights(depth, look):
@@ -554,7 +673,13 @@ def focus_weights(depth, look):
     px, py = plane_pixel_xy(pw, ph, *f.shape)
     out = []
     reaches = focus_reach_areas(lk["focus"], lo, hi, s_eff, mid, pw, ph)
-    for b, ra in zip(focus_bands(lk["focus"], lo, hi, s_eff, mid, pw, ph), reaches):
+    bands = iter(focus_bands(lk["focus"], lo, hi, s_eff, mid, pw, ph))
+    for fo, ra in zip(lk["focus"], reaches):
+        if is_shape(fo):
+            out.append(focus_shape_weight(f, fo, ra, lo, hi, pw, ph, px, py, mid, s_eff, lk["depth_scale"])
+                       if fo["enabled"] else None)
+            continue
+        b = next(bands)
         if not b["enabled"]:
             out.append(None)
             continue
@@ -648,6 +773,12 @@ def render(depth, look):
                                   pivot=[min(max((fo["at"][0] + 0.5) / w_, 0.0), 1.0),
                                          min(max((fo["at"][1] + 0.5) / h_, 0.0), 1.0)])
                              if fo["at"] is not None else fo for fo in lk["focus"]])
+    if lk["cut"] is not None and any(k["at"] is not None for k in lk["cut"]["keep"]):
+        h_, w_ = depth.shape                             # keep shapes given by a pixel: its depth and place
+        lk = dict(lk, cut=dict(lk["cut"], keep=[dict(k, depth=focus_depth_at(depth, lk, *k["at"]), at=None,
+                                                     pivot=[min(max((k["at"][0] + 0.5) / w_, 0.0), 1.0),
+                                                            min(max((k["at"][1] + 0.5) / h_, 0.0), 1.0)])
+                                                if k["at"] is not None else k for k in lk["cut"]["keep"]]))
     ss = lk["supersample"]
     if ss <= 1:
         out, info = _render(depth, lk)
@@ -693,12 +824,18 @@ def _render(depth, lk):
 
     f = remapped(depth, lk)
     lo, hi = _window(f, lk)
+    px, py = plane_pixel_xy(pw, ph, h_, w_)
+    extra = []                                           # shape focuses: strength x weight, summed with the bands
     if lk["focus"]:
-        reaches = [a for a in focus_reach_areas(lk["focus"], lo, hi, s_eff, mid, pw, ph) if a is not None]
+        all_reaches = focus_reach_areas(lk["focus"], lo, hi, s_eff, mid, pw, ph)
+        reaches = [a for a, fo in zip(all_reaches, lk["focus"]) if a is not None and not is_shape(fo)]
+        for fo, ra in zip(lk["focus"], all_reaches):
+            if is_shape(fo) and fo["enabled"] and float(fo["strength"]):
+                w = focus_shape_weight(f, fo, ra, lo, hi, pw, ph, px, py, mid, s_eff, lk["depth_scale"])
+                extra.append((w * np.float32(fo["strength"])).astype(np.float32))
         lk = dict(lk, bands=lk["bands"] + focus_bands(lk["focus"], lo, hi, s_eff, mid, pw, ph),
                   areas=lk["areas"] + reaches)
     tilt = resolve_tilt(lk["tilt"], lo, hi, s_eff, mid, pw, ph)
-    px, py = plane_pixel_xy(pw, ph, h_, w_)
 
     if tilt is None:
         def norm_chunk(r0, r1):
@@ -725,7 +862,8 @@ def _render(depth, lk):
         ramped = PAR.map_rows(
             lambda r0, r1: ramped[r0:r1] * contour_factor(norm[r0:r1], cc, cs, cw, rate[r0:r1])[..., None], h_)
 
-    any_on = any(b["enabled"] for b in lk["bands"]) or any(a["enabled"] for a in lk["areas"])
+    any_on = (any(b["enabled"] for b in lk["bands"]) or any(a["enabled"] for a in lk["areas"])
+              or any(is_shape(fo) and fo["enabled"] for fo in lk["focus"]))
     black = np.float32(1.0 if lk["base"] in ("BLACK", "WHITE") and any_on else 0.0)
     col = np.float32(1.0 if lk["base"] == "WHITE" else 0.0)
     wlo, whi = np.float32(WINDOW_LOW), np.float32(WINDOW_HIGH)
@@ -739,7 +877,9 @@ def _render(depth, lk):
     del norm, rin, ramped
 
     prep = sum_prepare(lk, depth.shape, px, py, pw, ph, mid, s_eff)
-    out = sum_compute(prep, f, base)
+    out = sum_compute(prep, f, base, extra)
+    if lk["cut"] is not None:
+        out = apply_cut(out, f, lk["cut"], lo, hi, pw, ph, px, py, mid, s_eff, lk["depth_scale"])
     info = {"size": [w_, h_], "window": [lo, hi], "remapped_range": [float(f.min()), float(f.max())],
             "terms": len(prep["recs"]), "dead_masks": prep["dead"], "seconds": time.perf_counter() - t0}
     return out, info
