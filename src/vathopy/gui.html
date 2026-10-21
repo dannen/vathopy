@@ -49,7 +49,12 @@
   .row label.lock, .maprow label.lock { display: flex; align-items: center; gap: 4px; color: var(--dim); font-size: 11.5px; cursor: pointer; }
   .maprow label.lock { margin-top: 4px; flex: none; }
   .row .lab button.small { margin-top: 0; padding: 1px 7px; }
-  .row output { color: var(--focus); font-variant-numeric: tabular-nums; min-width: 3.5em; text-align: right; }
+  .row output { color: var(--focus); font-variant-numeric: tabular-nums; min-width: 3.5em; text-align: right;
+    cursor: text; border-bottom: 1px dotted transparent; }
+  .row output:hover { border-bottom-color: var(--focus); }
+  .row output[hidden] { display: none; }
+  .row input.typed { width: 6em; justify-self: end; background: var(--bg); color: var(--focus); border: 1px solid var(--accent);
+    border-radius: 4px; padding: 0 4px; font: inherit; font-variant-numeric: tabular-nums; text-align: right; }
   input[type=range] { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); margin: 0; }
   .slide { grid-column: 1 / -1; display: flex; align-items: center; gap: 2px; }
   .slide input[type=range] { flex: 1; min-width: 0; }
@@ -598,6 +603,7 @@ async function render(quality) {
     const [mw, mh] = (r.headers.get("X-Map-Size") || "").split("x").map(Number);
     if (mw && mh) { mapSize = { w: mw, h: mh }; clampCrop(); }
     $("view").src = lastURL; $("view").hidden = false; $("empty").hidden = true; $("below").hidden = false;
+    fitView();
     $("status").textContent = `${view === "highlight" ? "highlights · " : ""}${withPair ? "with inverse · " : ""}${quality} · ${r.headers.get("X-Size")} · ${r.headers.get("X-Render-Ms")} ms`;
   } catch (e) {
     $("status").textContent = "error: " + e.message;
@@ -608,6 +614,24 @@ async function render(quality) {
     }
   }
 }
+// The picture's size on screen comes from the full render (the map's size, turned as shown), not from
+// the image file: a preview is smaller, and would otherwise shrink the picture until the full render
+// arrived. Fitted to the space (each half in Side by side), never enlarged; 100% view: the full size.
+function fitView() {
+  const size = shownSize();
+  for (const id of ["view", "view2"]) {
+    const img = $(id);
+    if (!size || img.hidden) { img.style.width = img.style.height = img.style.maxWidth = img.style.maxHeight = ""; continue; }
+    let w = size.w, h = size.h;
+    if (!$("stage").classList.contains("actual")) {
+      const room = $("stage").clientWidth - 24, twin = !$("view2").hidden;
+      const k = Math.min(1, (twin ? (room - 8) / 2 : room) / w, (window.innerHeight - 110) / h);
+      w *= k; h *= k;
+    }
+    Object.assign(img.style, { width: `${Math.floor(w)}px`, height: `${Math.floor(h)}px`, maxWidth: "none", maxHeight: "none" });
+  }
+}
+window.addEventListener("resize", fitView);
 let quiet = false;                                 // set while a step button updates a slider
 const preview = () => { if (!quiet) render("preview"); };
 const full = () => { previewWaiting = false; return render("full"); };   // a queued preview would replace it
@@ -731,7 +755,7 @@ $("pairbtn").onclick = () => {
   full();
 };
 const onPicture = async (ev) => {
-  if (!picking) { $("stage").classList.toggle("actual"); return; }
+  if (!picking) { $("stage").classList.toggle("actual"); fitView(); return; }
   const target = picking;
   const r = ev.currentTarget.getBoundingClientRect();     // either picture: same map, same place
   const [x, y] = mapPoint((ev.clientX - r.left) / r.width, (ev.clientY - r.top) / r.height);
@@ -774,6 +798,35 @@ document.addEventListener("keydown", (ev) => {
   if ((ev.key === "t" || ev.key === "T") && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !typing && bands.length)
     setView(view === "result" ? "highlight" : "result");
   if ((ev.key === "z" || ev.key === "Z") && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !typing) setLens(!lensOn);
+});
+
+// Typed values: click a slider's value to type one instead. Enter (or leaving the box) sets it, within
+// the slider's range and steps, as if the slider had been dragged there and released; Esc cancels.
+document.addEventListener("click", (ev) => {
+  const out = ev.target.closest(".row output");
+  const range = out && out.closest(".row").querySelector("input[type=range]");
+  if (!range || range.disabled) return;
+  const box = document.createElement("input");
+  box.type = "text"; box.inputMode = "decimal"; box.className = "typed"; box.value = range.value;
+  box.setAttribute("aria-label", (range.getAttribute("aria-label") || range.id) + ": type a value");
+  box.title = `${range.min} to ${range.max}, in steps of ${range.step}; Enter sets it, Esc cancels`;
+  out.hidden = true; out.after(box); box.focus(); box.select();
+  let done = false;
+  const finish = (apply) => {
+    if (done) return;
+    done = true;
+    const v = parseFloat(box.value.replace(",", "."));
+    box.remove(); out.hidden = false;
+    if (!apply || !Number.isFinite(v)) return;
+    range.value = Math.min(+range.max, Math.max(+range.min, v));      // the browser snaps it to the step
+    range.dispatchEvent(new Event("input"));
+    range.dispatchEvent(new Event("change"));
+  };
+  box.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") finish(true); else if (e.key === "Escape") finish(false);
+    e.stopPropagation();                             // keep T and Z for the box
+  });
+  box.addEventListener("blur", () => finish(true));
 });
 
 // Magnifier: a 200 px circle that follows the mouse over either picture and shows the picture under

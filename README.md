@@ -352,6 +352,9 @@ install -e .`) means no reinstall is needed unless `requirements.txt` changed.
 - **Step buttons:** every slider has a ◀ and a ▶ either side that move it down or up by one step in its own
   units (0.25 cycles, 1° of lean, 0.005 of depth, …). Clicks only move the value; nothing renders until they've
   stopped for 0.25 s, then the last setting renders once at full quality. Locked focuses disable them too.
+- **Typed values:** click a slider's value (the number above its ▶) to type one instead. Enter, or clicking
+  elsewhere, sets it as if the slider had been dragged there: kept within the slider's range and rounded to its
+  steps (0.4523 in Delete from far becomes 0.450). Esc leaves it as it was. Locked panels don't open the box.
 - **Focus:** choose a style (white on black, black on white, or lift/sink over the palette), press **Pick a depth**
   and click the picture: that distance becomes a focus with depth, width, softness and strength sliders (so a
   second distance can come forward less than the subject; at 0 it reads "no effect"), reach width/height/edge to
