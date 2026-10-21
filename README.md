@@ -260,7 +260,7 @@ Both apply to everything (contours, cycles, bands, area edges), are look keys (`
 
 A small local web app (Python standard library server + one HTML page, no extra dependencies):
 
-![The vathopy GUI: palette swatches, sliders and the rendered picture](examples/webui-example.jpg)
+![The vathopy GUI: the depth-map list, palette swatches, sliders, and the rendered picture with its save, view and orientation buttons](examples/webui-example.jpg)
 
 #### Starting it
 
