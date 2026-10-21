@@ -7,21 +7,21 @@
 <style>
   :root {
     color-scheme: dark;
-    --bg: #15171a; --panel: #1d2024; --line: #2c3036; --text: #e4e6e9; --dim: #8b929b;
+    --bg: #15171a; --panel: #1d2024; --line: #2c3036; --rule: #6e747c; --text: #e4e6e9; --dim: #8b929b;
     --accent: #ff7a3c; --focus: #ffb27c; --cut: rgba(255, 50, 50, .45);
     --overlay: rgba(0, 0, 0, .6); --overlay-text: #e4e6e9; --shadow: rgba(0, 0, 0, .6);
   }
   /* Light: the ☀/☾ button sets data-theme; without it, the system's choice. */
   :root[data-theme="light"] {
     color-scheme: light;
-    --bg: #eef0f2; --panel: #ffffff; --line: #d3d8de; --text: #1d2024; --dim: #5d646d;
+    --bg: #eef0f2; --panel: #ffffff; --line: #d3d8de; --rule: #c4c9cf; --text: #1d2024; --dim: #5d646d;
     --accent: #e8621f; --focus: #b4500f; --cut: rgba(230, 30, 30, .35);
     --overlay: rgba(255, 255, 255, .85); --overlay-text: #1d2024; --shadow: rgba(0, 0, 0, .3);
   }
   @media (prefers-color-scheme: light) {
     :root:not([data-theme="dark"]) {
       color-scheme: light;
-      --bg: #eef0f2; --panel: #ffffff; --line: #d3d8de; --text: #1d2024; --dim: #5d646d;
+      --bg: #eef0f2; --panel: #ffffff; --line: #d3d8de; --rule: #c4c9cf; --text: #1d2024; --dim: #5d646d;
       --accent: #e8621f; --focus: #b4500f; --cut: rgba(230, 30, 30, .35);
       --overlay: rgba(255, 255, 255, .85); --overlay-text: #1d2024; --shadow: rgba(0, 0, 0, .3);
     }
@@ -41,6 +41,8 @@
   body.side-right #status, body.side-right #lensbtn { left: 12px; }
   body.side-right #tabs { right: calc(320px + 12px); }
   h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); margin: 18px 0 8px; font-weight: 600; }
+  /* A short rule between the sidebar's sections: 70% of the panel's width, centred. */
+  aside h2::before { content: ""; display: block; width: 70%; height: 2px; margin: 0 auto 14px; background: var(--rule); border-radius: 1px; }
   select, input[type=text] { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line);
     border-radius: 6px; padding: 6px 8px; font: inherit; }
   .row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 4px 8px; margin: 8px 0 2px; }
