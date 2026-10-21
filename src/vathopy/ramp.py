@@ -134,11 +134,25 @@ class Ramp:
 
     @classmethod
     def from_dict(cls, d):
+        """``{"preset": KEY, "mirror": bool, "shift": k}`` or ``{"stops": [...], ..., "shift": k}``;
+        shift (default 0) is applied before mirror."""
+        shift = d.get("shift", 0)
+        if isinstance(shift, bool) or not isinstance(shift, int):
+            raise ValueError("ramp shift must be a whole number")
         if "preset" in d:
-            r = preset(d["preset"])
+            r = preset(d["preset"]).shifted(shift)
             return r.mirrored() if d.get("mirror") else r
         return cls([(p, c) for p, c in d["stops"]], d.get("interpolation", "LINEAR"),
-                   d.get("color_mode", "RGB"), d.get("hue_interpolation", "NEAR"))
+                   d.get("color_mode", "RGB"), d.get("hue_interpolation", "NEAR")).shifted(shift)
+
+    def shifted(self, k):
+        """The colours moved ``k`` stops towards the far end (position 0), the stops staying where they
+        are; the colour pushed off that end comes back in at the near end (negative k: the other way)."""
+        n = len(self.stops)
+        if not k % n:
+            return self
+        return Ramp([(p, self.stops[(i + k) % n][1]) for i, (p, _) in enumerate(self.stops)],
+                    self.interpolation, self.color_mode, self.hue_interpolation)
 
     def mirrored(self):
         """The add-on's mirror (used when a ramp is flipped to read near-left)."""

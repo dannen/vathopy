@@ -103,8 +103,7 @@ def _look_from_args(a):
     lk = LOOK.load(a.look) if a.look else LOOK.normalise({})
     look_has_ramp = False
     if a.look:
-        with open(a.look, encoding="utf-8") as fh:
-            look_has_ramp = "ramp" in json.load(fh)
+        look_has_ramp = "ramp" in LOOK.read_raw(a.look)
     if a.preset:
         lk["ramp"] = {"preset": a.preset}
     # "auto" values are filled in per depth map by _resolve_auto; placeholders here.
@@ -251,7 +250,7 @@ def main(argv=None):
 
     r = sub.add_parser("render", help="render a look onto depth maps")
     r.add_argument("inputs", nargs="+", help="depth maps, near = bright (.exr/.png/.tif/.npy)")
-    r.add_argument("-l", "--look", help="look JSON (default: a plain ramp)")
+    r.add_argument("-l", "--look", help="look JSON, settings exported from the GUI, or a PNG/JPG the GUI saved (default: a plain ramp)")
     r.add_argument("-o", "--output", help="output file, or a folder for several inputs")
     r.add_argument("-f", "--format", default="png16", choices=("png16", "png8", "exr"))
     r.add_argument("--preset", choices=list(PRESETS), help="override the look's ramp with a preset")

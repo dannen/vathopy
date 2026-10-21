@@ -176,9 +176,20 @@ def normalise(look):
     return lk
 
 
+def read_raw(path):
+    """The look in a file, as given (not normalised): a look JSON, the GUI's exported settings JSON,
+    or a PNG/JPEG the GUI saved (its embedded settings)."""
+    from . import meta
+    with open(path, "rb") as fh:
+        data = fh.read()
+    if data.lstrip()[:1] == b"{":
+        d = json.loads(data)
+        return meta.look_of(d) if "vathopy_settings" in d else d
+    return meta.look_of(meta.read(data))
+
+
 def load(path):
-    with open(path, encoding="utf-8") as fh:
-        return normalise(json.load(fh))
+    return normalise(read_raw(path))
 
 
 def save(look, path):

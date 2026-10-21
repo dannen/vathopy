@@ -18,6 +18,9 @@ looks can be loaded back into the controls.
 Saved files can be downloaded from the page (/api/file), which matters when the GUI runs on a
 remote machine such as a RunPod pod.
 
+Every PNG it writes carries the page's settings and the look (see meta.py); "Export settings"
+downloads the same as JSON, and "Load from file" reads either back into the controls.
+
 Crop cuts pixels off each side of a depth map's EXR: "Save cropped map" writes
 <map>-cropped.exr into the depth-map folder (replacing an earlier crop of that map), "Download
 EXR" sends the same file to the browser without writing anything on the server.
@@ -44,6 +47,7 @@ import numpy as np
 
 from . import io as VIO
 from . import look as LOOK
+from . import meta as META
 from . import palettes as PAL
 from .engine import focus_depth_at, focus_weights, render, smooth_depth
 from .probe import probe
@@ -73,15 +77,19 @@ def _hex(rgb):
 
 
 def palettes():
-    """[{key, label, colours: [hex near ... far]}], the black/white fringe ramp first."""
+    """[{key, label, colours: [hex near ... far], stops: [[x, hex], ...], constant}], the black/white
+    fringe ramp first. stops are the ramp's own stops, x = 0 near .. 1 far (as the swatch shows them),
+    so the page can draw a shifted palette; constant = hard steps between them."""
     out = []
     for key in [FRINGE] + list(PRESETS):
         ramp = Ramp.from_dict(FRINGE_RAMP if key == FRINGE else {"preset": key})
         rgb = ramp.evaluate(np.linspace(1.0, 0.0, 9, dtype=np.float32))[:, :3]   # near -> far
         label = "Black/white fringe (EASE)" if key == FRINGE else PRESETS[key]["name"]
         mine = key != FRINGE and bool(PRESETS[key].get("user"))
+        stops = [[round(1.0 - p, 4), _hex(_srgb8(np.asarray(c[:3], np.float32)))] for p, c in reversed(ramp.stops)]
         out.append({"key": key, "label": label + (" ★" if mine else ""), "user": mine,
-                    "colours": [_hex(c) for c in _srgb8(rgb)]})
+                    "colours": [_hex(c) for c in _srgb8(rgb)], "stops": stops,
+                    "constant": ramp.interpolation == "CONSTANT"})
     return out
 
 
@@ -96,6 +104,9 @@ def look_from_settings(s, preview=False):
             ramp["stops"] = [[0.0, [1.0, 1.0, 1.0, 1.0]], [1.0, [0.0, 0.0, 0.0, 1.0]]]
     else:
         ramp = {"preset": key, "mirror": True} if s.get("invert") else {"preset": key}
+    shift = int(round(float(s.get("shift", 0) or 0)))   # the palette's colours moved along its stops
+    if shift:
+        ramp["shift"] = shift
     lk = {"ramp": ramp, "equalize": bool(s.get("equalize"))}
     cycles = float(s.get("cycles", 0) or 0)
     if cycles > 0:
@@ -148,8 +159,8 @@ def settings_from_look(lk):
         palette = FRINGE
         invert = bool(stops) and stops[0][1][:3] == [1.0, 1.0, 1.0]
     c = lk.get("contours") or {}
-    return {"palette": palette, "invert": invert, "cycles": lk.get("cycles") or 0,
-            "contours": c.get("cycles", 0), "contour_strength": c.get("strength", 0.85),
+    return {"palette": palette, "invert": invert, "shift": ramp.get("shift", 0), "cycles": lk.get("cycles") or 0,
+            "contours": c.get("cycles", 0), "contour_strength": c.get("strength", 0.85) if c else 0,
             "contour_width": c.get("width", 2.0), "smooth": lk.get("smooth_depth", 0),
             "supersample": lk.get("supersample", 1), "equalize": bool(lk.get("equalize")),
             **_focus_settings(lk)}
@@ -304,8 +315,10 @@ def make_handler(maps, favourites, preview_size, auth=None, palettes_dir=None):
             if not self._authorised():
                 return
             try:
-                req = self._json_body()
                 path = self.path.split("?", 1)[0]
+                if path == "/api/read_settings":                 # the file itself as the body, not JSON
+                    return self._read_settings()
+                req = self._json_body()
                 if path == "/api/render":
                     return self._render(req)
                 if path == "/api/probe":
@@ -330,6 +343,10 @@ def make_handler(maps, favourites, preview_size, auth=None, palettes_dir=None):
                     return self._crop_save(req)
                 if path == "/api/crop_download":
                     return self._crop_download(req)
+                if path == "/api/export_settings":
+                    body = json.dumps(_payload(req), indent=1) + "\n"
+                    return self._send(200, body, "application/json",
+                                      {"Content-Disposition": f'attachment; filename="{_out_name(req)}.vathopy.json"'})
                 if path == "/api/look":
                     name = _safe_name(req.get("name", ""))
                     lk = json.loads((favourites / "looks" / f"{name}.json").read_text())
@@ -367,12 +384,23 @@ def make_handler(maps, favourites, preview_size, auth=None, palettes_dir=None):
             s = req.get("settings", {})
             d = maps.depth(req["map"], float(s.get("smooth", 0) or 0))
             out, _ = render(d, look_from_settings(s))
-            codes = np.round(VIO.srgb_oetf(out[::-1, :, :3]) * 65535).astype(np.uint16)
-            ok, png = cv2.imencode(".png", np.ascontiguousarray(codes[:, :, ::-1]))
-            if not ok:
-                raise ValueError("could not encode the PNG")
-            return self._send(200, png.tobytes(), "image/png",
+            return self._send(200, _png16(out, req), "image/png",
                               {"Content-Disposition": f'attachment; filename="{_out_name(req)}.png"'})
+
+        def _read_settings(self):
+            """Settings from an uploaded PNG/JPEG/JSON (the request body): the page's own if it carries
+            them, else the look's as page settings; plus the depth map it was made from."""
+            n = int(self.headers.get("Content-Length", 0))
+            if n > 300_000_000:
+                raise ValueError("file too large")
+            d = META.read(self.rfile.read(n))
+            if "vathopy_settings" in d and isinstance(d.get("settings"), dict):
+                settings, kind = d["settings"], "settings"
+            else:
+                settings, kind = settings_from_look(LOOK.normalise(META.look_of(d))), "look"   # checked: a real look
+            m = d.get("map") or ""
+            return self._send(200, {"settings": settings, "kind": kind, "source": d["source"], "map": m,
+                                    "name": d.get("name") or "", "map_listed": m in maps.list()})
 
         def _crop_save(self, req):
             """<map>-cropped.exr in the depth-map folder (an earlier crop of the same map is replaced)."""
@@ -403,7 +431,7 @@ def make_handler(maps, favourites, preview_size, auth=None, palettes_dir=None):
             while png.exists():
                 png = favourites / f"{stem}-{n:03d}.png"
                 n += 1
-            VIO.write_png(out, str(png), 16)
+            png.write_bytes(_png16(out, req))
             return self._send(200, {"png": str(png), "png_url": f"/api/file?name={png.name}"})
 
         def _file(self):
@@ -439,7 +467,7 @@ def make_handler(maps, favourites, preview_size, auth=None, palettes_dir=None):
             while png.exists():                       # never overwrite an earlier save
                 png = favourites / f"{stem}_{name}-{n:03d}.png"
                 n += 1
-            VIO.write_png(out, str(png), 16)
+            png.write_bytes(_png16(out, req))
             return self._send(200, {"png": str(png), "look": str(look_path),
                                     "png_url": f"/api/file?name={png.name}",
                                     "look_url": f"/api/file?name=looks/{look_path.name}"})
@@ -457,6 +485,26 @@ def _crop_request(maps, req):
     if not any(sides):
         raise ValueError("nothing to crop: every side is 0")
     return maps.folder / name, sides
+
+
+def _payload(req):
+    """What a saved PNG carries and Export settings writes: the page's settings, the look (with its
+    smoothing, so ``vathopy render -l`` reproduces it), the depth map and the look's name."""
+    s = req.get("settings", {})
+    lk = look_from_settings(s)
+    lk["smooth_depth"] = float(s.get("smooth", 0) or 0)
+    return META.payload(s, lk, req.get("map", ""), req.get("name", ""))
+
+
+def _png16(out, req):
+    """A bottom-up scene-linear render as 16-bit sRGB PNG bytes (as io.write_png writes it), with the
+    settings embedded."""
+    import cv2
+    codes = np.round(VIO.srgb_oetf(out[::-1, :, :3]) * 65535).astype(np.uint16)
+    ok, png = cv2.imencode(".png", np.ascontiguousarray(codes[:, :, ::-1]))
+    if not ok:
+        raise ValueError("could not encode the PNG")
+    return META.embed_png(png.tobytes(), _payload(req))
 
 
 def _out_name(req):

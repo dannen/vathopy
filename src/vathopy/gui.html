@@ -21,6 +21,10 @@
     border-radius: 6px; padding: 6px 8px; font: inherit; }
   .row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 4px 8px; margin: 8px 0 2px; }
   .row label { color: var(--text); }
+  .row .lab { display: flex; align-items: center; gap: 10px; }
+  .row label.lock, .maprow label.lock { display: flex; align-items: center; gap: 4px; color: var(--dim); font-size: 11.5px; cursor: pointer; }
+  .maprow label.lock { margin-top: 4px; flex: none; }
+  .row .lab button.small { margin-top: 0; padding: 1px 7px; }
   .row output { color: var(--focus); font-variant-numeric: tabular-nums; min-width: 3.5em; text-align: right; }
   input[type=range] { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); margin: 0; }
   .slide { grid-column: 1 / -1; display: flex; align-items: center; gap: 2px; }
@@ -31,12 +35,13 @@
   button.step:disabled { opacity: .3; cursor: not-allowed; }
   .checks { display: flex; gap: 16px; margin: 10px 0 0; }
   .checks label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
-  .swatches { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px; max-height: 30vh;
+  /* 3 rows of swatches: each 38 px (18 bar + 2 + 14 name + 2×2 border), 6 px gaps, padding and border. */
+  .swatches { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px; max-height: calc(3 * 38px + 2 * 6px + 2 * 6px + 2px);
     overflow-y: auto; overflow-x: hidden; border: 1px solid var(--line); border-radius: 8px; padding: 6px; }
   .swatch { min-width: 0; }
   .swatch { border: 2px solid transparent; border-radius: 6px; padding: 0; cursor: pointer; background: none; text-align: left; }
   .swatch .bar { height: 18px; border-radius: 4px; }
-  .swatch .name { display: block; font-size: 10.5px; color: var(--dim); padding: 2px 2px 0; white-space: nowrap;
+  .swatch .name { display: block; font-size: 10.5px; line-height: 14px; color: var(--dim); padding: 2px 2px 0; white-space: nowrap;
     overflow: hidden; text-overflow: ellipsis; }
   .swatch[aria-pressed=true] { border-color: var(--accent); }
   .swatch[aria-pressed=true] .name { color: var(--text); }
@@ -61,13 +66,16 @@
   .below .btns { display: flex; align-items: center; gap: 10px; }
   #downloaded { margin-top: 0; text-align: center; overflow-wrap: anywhere; }
   .below[hidden] { display: none; }
-  #view { max-width: 100%; max-height: calc(100vh - 110px); display: block; image-rendering: auto; cursor: zoom-in; }
+  #view, #view2 { max-width: 100%; max-height: calc(100vh - 110px); display: block; image-rendering: auto; cursor: zoom-in; }
+  #pair { display: flex; gap: 8px; align-items: flex-start; justify-content: center; max-width: 100%; }
+  #pair.on #viewbox, #view2 { flex: 0 1 auto; min-width: 0; max-width: calc(50% - 4px); }
+  #view2[hidden], #save_local2[hidden], #download2[hidden] { display: none; }
   main.actual { align-items: flex-start; justify-content: flex-start; }
   main.actual .work { align-items: flex-start; max-width: none; }
-  main.actual #view { max-width: none; max-height: none; cursor: zoom-out; }
-  main #view.picking { cursor: crosshair; }
-  #pick, #download, #save_local { display: inline-flex; align-items: center; gap: 7px; }
-  #download .icon, #save_local .icon { width: 18px; height: 18px; stroke: #fff; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; fill: none; flex: none; }
+  main.actual #view, main.actual #view2, main.actual #pair.on #viewbox { max-width: none; max-height: none; cursor: zoom-out; }
+  main #view.picking, main #view2.picking { cursor: crosshair; }
+  #pick, #download, #save_local, #pairbtn, #download2, #save_local2 { display: inline-flex; align-items: center; gap: 7px; }
+  #download .icon, #save_local .icon, #download2 .icon, #save_local2 .icon { width: 18px; height: 18px; stroke: #fff; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; fill: none; flex: none; }
   #pick .plus { width: 20px; height: 20px; stroke: #fff; stroke-width: 3.2; stroke-linecap: round; flex: none; }
   button.ghost[aria-pressed=true] { border-color: var(--accent); color: var(--focus); }
   .band { border: 1px solid var(--line); border-radius: 8px; padding: 2px 8px 8px; margin-top: 8px; }
@@ -127,12 +135,16 @@
 <div class="app">
   <aside>
     <h1>vathopy</h1>
-    <select id="map" size="5" aria-label="Depth map (up/down arrows move to the next)"></select>
+    <select id="map" size="10" aria-label="Depth map (up/down arrows move to the next)"></select>
     <div class="maprow"><div class="note" id="folder"></div>
       <button type="button" class="ghost small" id="refresh" title="Look for new depth maps in the folder">Refresh</button></div>
 
     <h2>Palette</h2>
     <div class="swatches" id="swatches" role="group" aria-label="Palette"></div>
+    <div class="row" title="Moves the palette's colours along its stops, one stop per step; the colour pushed off one end comes back in at the other (the selected swatch shows the result)">
+      <span class="lab"><label for="shift">Shift colours</label>
+      <button type="button" class="ghost small" id="shift_reset" title="Set the shift back to 0">Reset</button></span><output id="shift_v"></output>
+      <input type="range" id="shift" min="0" max="1" step="1" value="0"></div>
     <div class="checks">
       <label><input type="checkbox" id="invert"> Invert</label>
       <label><input type="checkbox" id="equalize"> Equalize</label>
@@ -141,12 +153,14 @@
     <h2>Shape</h2>
     <div class="row"><label for="cycles">Cycles</label><output id="cycles_v"></output>
       <input type="range" id="cycles" min="0" max="10" step="0.25" value="2"></div>
-    <div class="row" title="Fine-tunes Cycles: adds or subtracts up to 0.25 in 0.05 steps"><label for="cycles_fine">Cycles fine</label><output id="cycles_fine_v"></output>
+    <div class="row" title="Fine-tunes Cycles: adds or subtracts up to 0.25 in 0.05 steps. Moving Cycles sets it back to 0 unless it's locked">
+      <span class="lab"><label for="cycles_fine">Cycles fine</label>
+      <label class="lock" title="Keep Cycles fine when Cycles moves (and stop it being changed by accident)"><input type="checkbox" id="cycles_fine_lock"> Lock</label></span><output id="cycles_fine_v"></output>
       <input type="range" id="cycles_fine" min="-0.25" max="0.25" step="0.05" value="0"></div>
     <div class="row"><label for="contours">Contour lines</label><output id="contours_v"></output>
       <input type="range" id="contours" min="0" max="10" step="0.25" value="0"></div>
     <div class="row"><label for="contour_strength">Line darkness</label><output id="contour_strength_v"></output>
-      <input type="range" id="contour_strength" min="0" max="1" step="0.05" value="0.85"></div>
+      <input type="range" id="contour_strength" min="0" max="1" step="0.05" value="0"></div>
     <div class="row"><label for="contour_width">Line width (px)</label><output id="contour_width_v"></output>
       <input type="range" id="contour_width" min="0.5" max="8" step="0.5" value="1"></div>
 
@@ -176,12 +190,17 @@
     <div class="inline"><input type="text" id="name" placeholder="name for this look" aria-label="Look name">
       <button class="act" id="save">Save</button></div>
     <div class="note" id="saved"></div>
+    <div class="inline"><button class="ghost" id="export_settings" title="Download every setting on the page (and the look) as a .vathopy.json file">Export settings</button>
+      <button class="ghost" id="load_file" title="Load the settings from a PNG or JPG vathopy saved, an exported .vathopy.json, or a look .json (several files: the first that has them)">Load from file…</button>
+      <input type="file" id="load_input" accept=".json,.png,.jpg,.jpeg,application/json,image/png,image/jpeg" multiple hidden></div>
+    <div class="note" id="loaded"></div>
 
     <h2>Crop</h2>
     <div class="note" style="margin-top:0">Pixels cut off each side of the depth map (red on the picture).</div>
     <div id="crop_sides"></div>
     <div class="loupes" id="loupes" title="Each corner of the crop, 24 px of the map across"></div>
     <div class="maprow"><div class="note" id="crop_size"></div>
+      <label class="lock" title="Keep this crop when another depth map is picked (otherwise it goes back to 0)"><input type="checkbox" id="crop_lock"> Lock</label>
       <button type="button" class="ghost small" id="crop_reset" title="Set every side back to 0">Reset</button></div>
     <div class="inline"><button class="ghost" id="crop_save" title="Write <map>-cropped.exr into the depth-map folder on the machine running vathopy (replaces an earlier crop of this map)" disabled>
       <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 3.5h9.5L16.5 6.5v10h-12.5zM7 3.5v4h6v-4M7 16.5v-5h6v5"/></svg>Save local</button>
@@ -191,11 +210,16 @@
   </aside>
   <main id="stage"><div class="work">
     <div id="title"></div>
-    <span id="empty">Loading…</span><div id="viewbox"><img id="view" alt="" hidden><div id="cropshade" hidden></div></div>
+    <span id="empty">Loading…</span><div id="pair"><div id="viewbox"><img id="view" alt="" hidden><div id="cropshade" hidden></div></div><img id="view2" alt="" hidden></div>
     <div class="below" id="below" hidden><div class="btns"><button class="ghost" id="save_local" title="Save the full-quality result as a 16-bit PNG in the favourites folder on the machine running vathopy">
       <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 3.5h9.5L16.5 6.5v10h-12.5zM7 3.5v4h6v-4M7 16.5v-5h6v5"/></svg>Save local</button>
       <button class="ghost" id="download" title="Download the full-quality result as a 16-bit PNG">
-      <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 16.5h12"/></svg>Download PNG</button></div>
+      <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 16.5h12"/></svg>Download PNG</button>
+      <button class="ghost" id="save_local2" hidden title="Save the inverse (right) at full quality as a 16-bit PNG in the favourites folder, named …_inverse">
+      <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 3.5h9.5L16.5 6.5v10h-12.5zM7 3.5v4h6v-4M7 16.5v-5h6v5"/></svg>Save inverse</button>
+      <button class="ghost" id="download2" hidden title="Download the inverse (right) at full quality as a 16-bit PNG, named …_inverse">
+      <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 16.5h12"/></svg>Download inverse</button>
+      <button class="ghost" id="pairbtn" aria-pressed="false" title="Show the inverse (Invert flipped) beside the picture">Side by side</button></div>
       <div class="note" id="downloaded"></div></div>
   </div></main>
 </div>
@@ -207,9 +231,10 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-const sliders = ["cycles", "cycles_fine", "contours", "contour_strength", "contour_width", "smooth", "supersample"];
+const sliders = ["shift", "cycles", "cycles_fine", "contours", "contour_strength", "contour_width", "smooth", "supersample"];
 let palette = "FRINGE";
 const fmt = {
+  shift: (v) => (+v === 0 ? "0" : `${+v > 0 ? "▶ " : "◀ "}${Math.abs(+v)}`),
   cycles: (v) => (+v === 0 ? "off" : (+v).toString()),
   cycles_fine: (v) => (+$("cycles").value === 0 ? "off" : `${+v > 0 ? "+" : +v < 0 ? "−" : "±"}${Math.abs(+v).toFixed(2)} → ${cyclesTotal()}`),
   contours: (v) => (+v === 0 ? "off" : (+v).toString()),
@@ -384,7 +409,14 @@ async function getJSON(url, body) {
 // Rendering: previews while dragging (one in flight; the newest waits), full quality on release.
 // Every request gets an increasing id; a response is shown only if nothing newer has been shown,
 // and a preview is dropped once a full render has been asked for after it.
-let reqId = 0, shownId = 0, fullAskedId = 0, previewBusy = false, previewWaiting = false, lastURL = null;
+let reqId = 0, shownId = 0, fullAskedId = 0, previewBusy = false, previewWaiting = false, lastURL = null, lastURL2 = null;
+let pair = false;                                  // the inverse (Invert flipped) rendered beside the picture
+async function fetchRender(s, quality) {
+  const r = await fetch("/api/render", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ map: $("map").value, settings: s, quality, view }) });
+  if (!r.ok) throw new Error((await r.json()).error);
+  return [r, await r.blob()];
+}
 async function render(quality) {
   if (!$("map").value) return;
   if (quality === "preview" && previewBusy) { previewWaiting = true; return; }
@@ -392,18 +424,21 @@ async function render(quality) {
   if (quality === "full") fullAskedId = id; else previewBusy = true;
   $("status").textContent = quality === "full" ? "rendering…" : "preview…";
   try {
-    const r = await fetch("/api/render", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ map: $("map").value, settings: settings(), quality, view }) });
-    if (!r.ok) throw new Error((await r.json()).error);
-    const blob = await r.blob();
+    const s = settings(), withPair = pair;
+    const [[r, blob], second] = await Promise.all([fetchRender(s, quality),
+      withPair ? fetchRender({ ...s, invert: !s.invert }, quality) : null]);
     if (id < shownId || (quality === "preview" && fullAskedId > id)) return;
     shownId = id;
     if (lastURL) URL.revokeObjectURL(lastURL);
     lastURL = URL.createObjectURL(blob);
+    if (lastURL2) URL.revokeObjectURL(lastURL2);
+    lastURL2 = withPair ? URL.createObjectURL(second[1]) : null;
+    if (lastURL2) $("view2").src = lastURL2;
+    $("view2").hidden = !withPair; $("pair").classList.toggle("on", withPair);
     const [mw, mh] = (r.headers.get("X-Map-Size") || "").split("x").map(Number);
     if (mw && mh) { mapSize = { w: mw, h: mh }; clampCrop(); }
     $("view").src = lastURL; $("view").hidden = false; $("empty").hidden = true; $("below").hidden = false;
-    $("status").textContent = `${view === "highlight" ? "highlights · " : ""}${quality} · ${r.headers.get("X-Size")} · ${r.headers.get("X-Render-Ms")} ms`;
+    $("status").textContent = `${view === "highlight" ? "highlights · " : ""}${withPair ? "with inverse · " : ""}${quality} · ${r.headers.get("X-Size")} · ${r.headers.get("X-Render-Ms")} ms`;
   } catch (e) {
     $("status").textContent = "error: " + e.message;
   } finally {
@@ -417,22 +452,50 @@ let quiet = false;                                 // set while a step button up
 const preview = () => { if (!quiet) render("preview"); };
 const full = () => { previewWaiting = false; return render("full"); };   // a queued preview would replace it
 
+let paletteList = [];
+// One shift position per colour stop of the selected palette, centred on 0 (◀ negative, ▶ positive).
+function setShiftRange() {
+  const p = paletteList.find((q) => q.key === palette), n = p ? p.stops.length : 2, el = $("shift");
+  el.min = -Math.floor((n - 1) / 2); el.max = Math.ceil((n - 1) / 2);
+  el.value = Math.max(+el.min, Math.min(+el.max, +el.value));     // a shift kept from the last palette, if it fits
+  showValues(); drawSwatchBars();
+}
+// The swatch bars; the selected one shows its colours shifted (as server-side: each moves right by
+// the shift, the last ones wrapping round to the left).
+function drawSwatchBars() {
+  for (const b of document.querySelectorAll(".swatch")) {
+    const p = paletteList.find((q) => q.key === b.dataset.key), n = p.stops.length;
+    const k = p.key === palette ? +$("shift").value : 0;
+    let grad;
+    if (!k) grad = p.colours.join(",");
+    else {
+      const cols = p.stops.map((_, i) => p.stops[(((i - k) % n) + n) % n][1]), xs = p.stops.map((st) => st[0] * 100);
+      grad = p.constant   // hard steps: each colour runs up to the next stop (Blender's CONSTANT)
+        ? cols.map((c, i) => `${c} ${xs[i]}% ${i + 1 < n ? xs[i + 1] : 100}%`).join(",")
+        : cols.map((c, i) => `${c} ${xs[i]}%`).join(",");
+    }
+    b.querySelector(".bar").style.background = `linear-gradient(90deg,${grad})`;
+  }
+}
 function buildSwatches(list) {
+  paletteList = list;
   const box = $("swatches");
   box.innerHTML = "";
   for (const p of list) {
     const b = document.createElement("button");
     b.className = "swatch"; b.type = "button"; b.dataset.key = p.key; b.title = p.label;
     b.setAttribute("aria-pressed", p.key === palette);
-    b.innerHTML = `<div class="bar" style="background:linear-gradient(90deg,${p.colours.join(",")})"></div><span class="name"></span>`;
+    b.innerHTML = `<div class="bar"></div><span class="name"></span>`;
     b.querySelector(".name").textContent = p.label;
     b.onclick = () => { selectPalette(p.key); full(); };
     box.appendChild(b);
   }
+  setShiftRange();
 }
 function selectPalette(key) {
   palette = key;
   for (const b of document.querySelectorAll(".swatch")) b.setAttribute("aria-pressed", b.dataset.key === key);
+  setShiftRange();
 }
 
 async function loadLooks() {
@@ -466,6 +529,14 @@ async function init() {
   if (maps.maps.length) full(); else $("empty").textContent = "No depth maps (.exr) in " + maps.folder;
 }
 
+// Moving Cycles sets Cycles fine back to 0, unless it's locked (a locked one can't be moved either).
+$("cycles").addEventListener("input", () => { if (!$("cycles_fine_lock").checked) $("cycles_fine").value = 0; });
+$("cycles_fine_lock").addEventListener("change", () => {
+  for (const el of [$("cycles_fine"), ...$("cycles_fine").parentElement.querySelectorAll("button.step")])
+    el.disabled = $("cycles_fine_lock").checked;
+});
+$("shift").addEventListener("input", drawSwatchBars);
+$("shift_reset").onclick = () => { if (+$("shift").value !== 0) { $("shift").value = 0; showValues(); drawSwatchBars(); full(); } };
 for (const k of sliders) {
   $(k).addEventListener("input", () => { showValues(); if (k !== "supersample") preview(); });
   $(k).addEventListener("change", full);
@@ -474,6 +545,7 @@ for (const k of ["invert", "equalize"]) $(k).addEventListener("change", full);
 function showTitle() { $("title").textContent = $("map").value; $("view").alt = $("map").value; }
 $("map").addEventListener("change", () => {
   $("probe").textContent = ""; $("downloaded").textContent = ""; $("crop_note").textContent = "";
+  if (!$("crop_lock").checked) for (const k of CROP_SIDES) crop[k] = 0;   // a locked crop is kept (fitted to the new map)
   mapSize = null; showCrop();                       // the new map's size comes with its render
   showTitle();
   bands = []; buildBands(); setPicking(false); setView("result", false);   // focus depths belong to the old map
@@ -492,9 +564,14 @@ $("refresh").addEventListener("click", async () => {
     else full();                                    // the same map may have been rerun
   } catch (e) { $("refresh").textContent = "Failed"; setTimeout(() => { $("refresh").textContent = "Refresh"; }, 2500); }
 });
-$("view").addEventListener("click", async (ev) => {
+$("pairbtn").onclick = () => {
+  pair = !pair; $("pairbtn").setAttribute("aria-pressed", pair);
+  $("save_local2").hidden = $("download2").hidden = !pair;
+  full();
+};
+const onPicture = async (ev) => {
   if ($("pick").getAttribute("aria-pressed") !== "true") { $("stage").classList.toggle("actual"); return; }
-  const r = $("view").getBoundingClientRect();
+  const r = ev.currentTarget.getBoundingClientRect();     // either picture: same map, same place
   const x = (ev.clientX - r.left) / r.width, y = (ev.clientY - r.top) / r.height;
   if (!ev.shiftKey) setPicking(false);
   try {
@@ -506,10 +583,12 @@ $("view").addEventListener("click", async (ev) => {
     if ($("focus_style").value === "off") $("focus_style").value = "white_on_black";
     buildBands(); setView("highlight", false); full();
   } catch (e) { $("focus_note").textContent = "pick failed: " + e.message; }
-});
+};
+$("view").addEventListener("click", onPicture);
+$("view2").addEventListener("click", onPicture);
 function setPicking(on) {
   $("pick").setAttribute("aria-pressed", on);
-  $("view").classList.toggle("picking", on);
+  for (const id of ["view", "view2"]) $(id).classList.toggle("picking", on);
 }
 $("pick").onclick = () => setPicking($("pick").getAttribute("aria-pressed") !== "true");
 $("focus_style").addEventListener("change", full);
@@ -534,19 +613,61 @@ $("auto").onclick = async () => {
   } catch (e) { $("probe").textContent = "probe failed: " + e.message; }
 };
 
+// Page settings (a saved look's, or a file's) onto the controls, then render.
+function applySettings(s, name) {
+  if (!paletteList.some((p) => p.key === s.palette)) throw new Error(`unknown palette ${s.palette}`);
+  $("invert").checked = !!s.invert; $("equalize").checked = !!s.equalize;
+  for (const k of sliders) $(k).value = s[k] ?? $(k).value;
+  selectPalette(s.palette); $("shift").value = s.shift || 0; drawSwatchBars();   // the palette sets the shift's range
+  setCycles(+s.cycles || 0);
+  $("focus_style").value = s.focus_style || "off";
+  bands = (s.focus || []).map((b) => ({ ...b, open: s.focus.length <= 3 })); buildBands(); setView("result", false);
+  showValues(); if (name) $("name").value = name; full();
+}
 $("looks").onchange = async () => {
   const name = $("looks").value;
   if (!name) return;
+  try { applySettings(await getJSON("/api/look", { name }), name); }
+  catch (e) { $("saved").textContent = "load failed: " + e.message; }
+};
+$("export_settings").onclick = async () => {
   try {
-    const s = await getJSON("/api/look", { name });
-    selectPalette(s.palette);
-    $("invert").checked = s.invert; $("equalize").checked = s.equalize;
-    for (const k of sliders) $(k).value = s[k] ?? $(k).value;
-    setCycles(+s.cycles || 0);
-    $("focus_style").value = s.focus_style || "off";
-    bands = (s.focus || []).map((b) => ({ ...b, open: s.focus.length <= 3 })); buildBands(); setView("result", false);
-    showValues(); $("name").value = name; full();
-  } catch (e) { $("saved").textContent = "load failed: " + e.message; }
+    const r = await fetch("/api/export_settings", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ map: $("map").value, settings: settings(), name: $("name").value }) });
+    if (!r.ok) throw new Error((await r.json()).error);
+    const name = (r.headers.get("Content-Disposition") || "").match(/filename="([^"]+)"/)?.[1] || "vathopy.json";
+    const url = URL.createObjectURL(await r.blob());
+    const a = document.createElement("a");
+    a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    $("loaded").textContent = "Exported " + name;
+  } catch (e) { $("loaded").textContent = "export failed: " + e.message; }
+};
+// Load from file: each chosen file goes to the server, which finds the settings in it; the first
+// file that has them wins. Its depth map is selected when it's in the list (focus depths belong to it).
+$("load_file").onclick = () => $("load_input").click();
+$("load_input").onchange = async () => {
+  const files = [...$("load_input").files];
+  $("load_input").value = "";
+  if (!files.length) return;
+  $("loaded").textContent = "reading…";
+  const fails = [];
+  for (const f of files) {
+    try {
+      const r = await fetch("/api/read_settings", { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: f });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || r.statusText);
+      if (j.map_listed && j.map !== $("map").value) {
+        $("map").value = j.map; $("map").dispatchEvent(new Event("change"));
+      }
+      applySettings(j.settings, j.name);
+      $("loaded").textContent = `Loaded ${j.kind === "look" ? "the look" : "the settings"} from ${f.name} (${j.source})`
+        + (j.map && !j.map_listed ? `.\nIt was made from ${j.map}, which isn't in this folder: applied to ${$("map").value}.` : "")
+        + (j.map_listed ? ` · ${j.map}` : "");
+      return;
+    } catch (e) { fails.push(`${f.name}: ${e.message}`); }
+  }
+  $("loaded").textContent = "load failed: " + fails.join("; ");
 };
 
 $("save").onclick = async () => {
@@ -564,21 +685,25 @@ $("save").onclick = async () => {
   } catch (e) { $("saved").textContent = "save failed: " + e.message; }
 };
 
-$("save_local").onclick = async () => {
-  const btn = $("save_local");
+// What Save local / Download PNG send: the picture, or (inverse) the one beside it, named …_inverse.
+function exportRequest(inverse) {
+  const s = settings();
+  if (!inverse) return { map: $("map").value, settings: s, name: $("name").value };
+  return { map: $("map").value, settings: { ...s, invert: !s.invert }, name: ($("name").value.trim() || "vathopy") + "_inverse" };
+}
+async function saveLocal(btn, inverse) {
   btn.disabled = true; $("downloaded").textContent = "saving the PNG…";
   try {
-    const j = await getJSON("/api/save_local", { map: $("map").value, settings: settings(), name: $("name").value });
+    const j = await getJSON("/api/save_local", exportRequest(inverse));
     $("downloaded").textContent = "Saved " + j.png;
   } catch (e) { $("downloaded").textContent = "save failed: " + e.message; }
   finally { btn.disabled = false; }
-};
-$("download").onclick = async () => {
-  const btn = $("download");
+}
+async function downloadPNG(btn, inverse) {
   btn.disabled = true; $("downloaded").textContent = "rendering the PNG…";
   try {
     const r = await fetch("/api/export", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ map: $("map").value, settings: settings(), name: $("name").value }) });
+      body: JSON.stringify(exportRequest(inverse)) });
     if (!r.ok) throw new Error((await r.json()).error);
     const name = (r.headers.get("Content-Disposition") || "").match(/filename="([^"]+)"/)?.[1] || "vathopy.png";
     const url = URL.createObjectURL(await r.blob());
@@ -588,7 +713,10 @@ $("download").onclick = async () => {
     $("downloaded").textContent = "Downloaded " + name;
   } catch (e) { $("downloaded").textContent = "download failed: " + e.message; }
   finally { btn.disabled = false; }
-};
+}
+for (const [id, fn, inverse] of [["save_local", saveLocal, false], ["save_local2", saveLocal, true],
+                                 ["download", downloadPNG, false], ["download2", downloadPNG, true]])
+  $(id).onclick = () => fn($(id), inverse);
 
 // Crop: pixels cut off each side of the map. The picture gets a red shade over what goes and the
 // loupes show each corner of what stays; saving/downloading crops the map's EXR itself (all channels).

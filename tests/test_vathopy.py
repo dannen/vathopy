@@ -413,12 +413,27 @@ def test_cli_probe_and_auto(tmp_path):
 
 
 
+def test_ramp_shift_rotates_the_stop_colours():
+    from vathopy.ramp import Ramp
+    base = Ramp.from_dict({"preset": "BLACK_WHITE_BLACK"})
+    cols = [c for _, c in base.stops]
+    one = Ramp.from_dict({"preset": "BLACK_WHITE_BLACK", "shift": 1})
+    assert [p for p, _ in one.stops] == [p for p, _ in base.stops]            # the stops stay put
+    assert [c for _, c in one.stops] == cols[1:] + cols[:1]                  # the colours move towards position 0
+    assert Ramp.from_dict({"preset": "BLACK_WHITE_BLACK", "shift": -2}).stops == one.stops   # wraps round
+    assert Ramp.from_dict({"preset": "BLACK_WHITE_BLACK", "shift": 3}).stops == base.stops
+    # shift first, then mirror
+    assert Ramp.from_dict({"preset": "BLACK_WHITE_BLACK", "shift": 1, "mirror": True}).stops == one.mirrored().stops
+    with pytest.raises(ValueError):
+        Ramp.from_dict({"preset": "BLACK_WHITE_BLACK", "shift": 0.5})
+
+
 def test_gui_settings_round_trip_and_api(tmp_path):
     import threading, urllib.request
     from http.server import ThreadingHTTPServer
     from vathopy import gui
     # settings -> look -> settings
-    s = {"palette": "EMBER_TO_BLACK", "invert": True, "equalize": True, "cycles": 2.5, "contours": 6,
+    s = {"palette": "EMBER_TO_BLACK", "invert": True, "shift": -1, "equalize": True, "cycles": 2.5, "contours": 6,
          "contour_strength": 0.5, "contour_width": 3, "smooth": 4, "supersample": 3,
          "focus_style": "black_on_white", "focus": [{"depth": 0.4, "width": 0.08, "softness": 0.04, "strength": 0.6,
                                                      "enabled": True, "angle": 45.0, "lean": 30.0, "x": 0.25, "y": 0.75,
@@ -693,3 +708,38 @@ def test_cli(tmp_path):
     r = run("render", str(tmp_path / "depth.exr"), "--preset", "MIST", "--base", "BLACK", "--focus", "@32,24:0.1",
             "--focus", "0.9:0.1:0.05:0.5", "-o", str(tmp_path))
     assert (tmp_path / "depth_mist_focus.png").exists() and "2 band/area term(s)" in r.stdout
+
+
+def test_settings_embedded_in_pngs_and_read_back(tmp_path):
+    import struct
+    from vathopy import gui, meta
+    s = {"palette": "BLACK_WHITE_BLACK", "shift": 1, "invert": False, "equalize": False, "cycles": 2.1,
+         "contours": 0, "contour_strength": 0, "contour_width": 1, "smooth": 2, "supersample": 1, "focus": []}
+    req = {"map": "scene_depth.exr", "name": "mine", "settings": s}
+    out = np.zeros((6, 8, 4), np.float32); out[..., 0] = np.linspace(0, 1, 8)
+    png = gui._png16(out, req)
+    import cv2
+    assert cv2.imdecode(np.frombuffer(png, np.uint8), cv2.IMREAD_UNCHANGED).shape == (6, 8, 3)   # still a good PNG
+    d = meta.read(png)
+    assert d["source"] == "PNG" and d["settings"] == s and d["map"] == "scene_depth.exr" and d["name"] == "mine"
+    assert d["look"]["ramp"] == {"preset": "BLACK_WHITE_BLACK", "shift": 1} and d["look"]["smooth_depth"] == 2.0
+    # only the eXIf copy left (the text chunk dropped, as a converter might)
+    i = png.index(b"tEXt") - 4
+    n = struct.unpack(">I", png[i:i + 4])[0]
+    assert meta.read(png[:i] + png[i + 12 + n:])["settings"] == s
+    # a JPEG with the same EXIF block in APP1, and one with the JSON only in a comment
+    exif = b"Exif\0\0" + meta._exif(meta._text(d))
+    jpg = b"\xff\xd8" + b"\xff\xe1" + struct.pack(">H", len(exif) + 2) + exif + b"\xff\xd9"
+    assert meta.read(jpg)["source"] == "JPEG" and meta.read(jpg)["settings"] == s
+    com = meta._text(d).encode()
+    assert meta.read(b"\xff\xd8\xff\xfe" + struct.pack(">H", len(com) + 2) + com + b"\xff\xd9")["settings"] == s
+    with pytest.raises(ValueError):
+        meta.read(b"\xff\xd8\xff\xd9")
+    # the CLI reads the look from the PNG, an exported JSON and a plain look alike
+    (tmp_path / "a.png").write_bytes(png)
+    (tmp_path / "a.json").write_text(json.dumps(meta.payload(s, d["look"])))
+    (tmp_path / "b.json").write_text(json.dumps({"ramp": {"preset": "BLACK_WHITE_BLACK", "shift": 1}}))
+    for f in ("a.png", "a.json", "b.json"):
+        assert vathopy.look.load(tmp_path / f)["ramp"] == {"preset": "BLACK_WHITE_BLACK", "shift": 1}, f
+    # a look JSON read as a file goes back to page settings
+    assert gui.settings_from_look(meta.look_of(meta.read((tmp_path / "b.json").read_bytes())))["shift"] == 1

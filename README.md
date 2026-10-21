@@ -253,7 +253,7 @@ install -e .`) means no reinstall is needed unless `requirements.txt` changed.
 
 #### Using it
 
-- **Depth maps:** a five-row list at the top of the panel; click one, or click into the list and use the up and
+- **Depth maps:** a ten-row list at the top of the panel; click one, or click into the list and use the up and
   down arrow keys to step through them. The selected map's name shows above the picture. Only depth EXRs are
   listed; files with `normals`, `albedo` or `bench_` in the name are left out. Each map is prepped (`--kind
   near-bright`) once and kept in memory, and read again if its file changes. **Refresh**, next to the folder
@@ -261,12 +261,18 @@ install -e .`) means no reinstall is needed unless `requirements.txt` changed.
   it's still there.
 - **Sections:** click a heading's ▾ (Palette, Shape, Focus, Quality, Looks, Crop) to collapse it; the browser
   remembers which are collapsed. Each focus panel folds the same way from the ▾ on its left.
-- **Palette:** swatches of all presets plus the black/white fringe ramp, then your own palettes (marked ★, re-read
-  from the palette folder on every page load), with **Invert** (mirror the ramp) and **Equalize**.
+- **Palette:** a box three rows of swatches high (scroll for more) with all presets plus the black/white fringe ramp, then your own palettes (marked ★, re-read
+  from the palette folder on every page load), with **Invert** (mirror the ramp) and **Equalize**. **Shift
+  colours** moves the selected palette's colours along its stops, one stop per step (◀ left, ▶ right); the colour
+  pushed off one end comes back in at the other, and the selected swatch shows the result. It has one position
+  per colour stop, centred on 0 (a 3-stop palette: −1, 0, +1); **Reset** sets it back to 0. Invert mirrors the
+  shifted palette. It's saved in looks as the ramp's `shift`.
 - **Sliders:** cycles and contour lines (0 = off, 0.25 steps), line darkness and width, smoothing and
-  anti-aliasing. It starts at 2 cycles, 1 px lines, smoothing off and 2× anti-aliasing. **Cycles fine** adds
+  anti-aliasing. It starts at 2 cycles, 1 px lines, smoothing off and 2× anti-aliasing. Line darkness only
+  affects contour lines, so it starts at 0 like them (raise both to draw lines). **Cycles fine** adds
   or subtracts up to 0.25 to the cycles in 0.05 steps (its readout shows the total, e.g. `+0.10 → 2.1`); a
-  saved look with, say, 3.4 cycles loads as 3.5 and −0.10.
+  saved look with, say, 3.4 cycles loads as 3.5 and −0.10. Moving Cycles sets Cycles fine back to 0, unless its
+  **Lock** box is ticked, which also stops Cycles fine itself being moved.
 - **Step buttons:** every slider has a ◀ and a ▶ either side that move it down or up by one step in its own
   units (0.25 cycles, 1° of lean, 0.005 of depth, …). Clicks only move the value; nothing renders until they've
   stopped for 0.25 s, then the last setting renders once at full quality. Locked focuses disable them too.
@@ -293,10 +299,25 @@ install -e .`) means no reinstall is needed unless `requirements.txt` changed.
 - **Download PNG** (under the picture, right of Save local): the same 16-bit PNG, downloaded straight to the
   browser, without saving anything on the server. Both are always the result, even while the Highlights view is
   showing.
+- **Side by side** (under the picture): shows the inverse (Invert flipped) to the right of the picture, and adds
+  **Save inverse** and **Download inverse**, which work like Save local and Download PNG for the right-hand
+  picture, named `<depth map>_<look name or "vathopy">_inverse.png`. Each render then makes both pictures, so
+  it's a little slower. Picking a depth works on either picture.
 - **Looks:** type a name and press **Save** to write the full-quality PNG to `--favourites` (never overwriting)
   and the look to `looks/<name>.json`. Saved looks load back into the controls from the list, and `vathopy
   render -l looks/<name>.json` reproduces the PNG exactly. After a save, the page links the PNG and the look,
   so they can be downloaded when the GUI runs on another machine (such as a RunPod pod).
+- **Settings in the pictures:** every PNG the GUI writes (Save, Save local, Download PNG and the inverse ones)
+  carries all of the page's settings, the look and the depth map's name, the way ComfyUI keeps its workflow in
+  its PNGs: in a `vathopy` text chunk and in EXIF (UserComment, as an `eXIf` chunk and as the "Raw profile type
+  exif" chunk ImageMagick 6 and exiv2 read). Converting the PNG to a JPG with ImageMagick (`convert a.png
+  a.jpg`, resized or not) keeps the EXIF copy; tools that strip metadata (`-strip`, most web uploads) lose it.
+- **Export settings / Load from file…** (Looks section): Export downloads the same as
+  `<map>_<name>.vathopy.json`. Load takes a PNG or JPG vathopy saved, such a `.vathopy.json`, or a look JSON
+  (several files at once: the first that has settings wins) and puts every control back, focuses included,
+  so you can carry on editing. It switches to the depth map the file was made from when that's in the list;
+  otherwise the settings go onto the current map. `vathopy render -l` takes the same files, so `vathopy render
+  prepped.exr -l picture.jpg` remakes the picture.
 - **Crop:** trims the depth map itself, e.g. to drop edge pixels the depth model got wrong. Each side (and
   **All**, every side at once) has −10, −5, −1, +1, +5 and +10 px buttons; at least 1 px always stays. The part
   that goes is shaded red on the picture, and four loupes show each corner of the crop, 24 px of the map across,
@@ -304,7 +325,8 @@ install -e .`) means no reinstall is needed unless `requirements.txt` changed.
   earlier crop of that map) and lists it; **Download EXR** sends the same file to the browser and writes nothing
   on the server, which is the way to get it from a pod. The crop keeps every channel, the pixel type, the
   compression and all header attributes (such as ComfyUI's prompt and workflow), and the file is read back and
-  compared before it's kept. The crop amounts stay when you switch maps. From Python:
+  compared before it's kept. Choosing another depth map sets the crop back to 0, unless the **Lock** box next to
+  Reset is ticked; then it's kept (fitted to the new map's size). From Python:
   `vathopy.crop_exr(src, dst, top=1, right=1, bottom=1, left=1)`.
 
 ### Probing a depth map for the most detail
@@ -377,7 +399,7 @@ Every key is optional; unknown keys are rejected so that typos don't pass silent
 | `controls` | `[]` | Depth remap controls: `{center, offset, feather, from_min, from_max}` in depth units |
 | `window` | `"auto"` | Ramp range `[lo, hi]` in remapped depth, or `"auto"` = the remapped map's min..max |
 | `tilt` | `null` | Ramp tilt: `{normal: [x,y,z], x0, y0, fit}` |
-| `ramp` | `{"preset": "WHITE_TO_BLACK"}` | `{"preset": KEY, "mirror": bool}` or `{"stops": [[pos, [r,g,b,a]], …], "interpolation", "color_mode", "hue_interpolation"}`; colours scene-linear |
+| `ramp` | `{"preset": "WHITE_TO_BLACK"}` | `{"preset": KEY, "mirror": bool, "shift": k}` or `{"stops": [[pos, [r,g,b,a]], …], "interpolation", "color_mode", "hue_interpolation", "shift": k}`; colours scene-linear. `shift` (whole number, default 0) moves the colours k stops towards position 0 (the far end, the right of the GUI's swatch), wrapping round, before `mirror` |
 | `ramp_near_left` | `false` | Read the ramp with near at its left end (the add-on's default for new reliefs is `true`) |
 | `base` | `"RAMP"` | What bands/areas sit on: `RAMP`, `BLACK` or `WHITE` |
 | `bands` | `[]` | `{id, name, enabled, strength, interpolation, normal, center, width, softness}` |
