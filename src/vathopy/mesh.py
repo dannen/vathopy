@@ -11,7 +11,7 @@ normal faces out. Units are millimetres. numpy only.
 
 import numpy as np
 
-MAX_TRIANGLES = 12_000_000   # a 2496 x 1872 map at every pixel is about 9.3 million (465 MB of STL)
+MAX_TRIANGLES = 20_000_000   # a 2496 x 1872 map at every pixel: 9.4 million (468 MB of STL); with parts left out, up to ~19 million
 
 
 def triangle_count(rows, cols):
@@ -57,6 +57,57 @@ def heightfield_mesh(top, px_mm, base_mm):
     pb, qb = bot_ring, np.roll(bot_ring, -1)
     faces += [np.stack([p, pb, qb], -1), np.stack([p, qb, q], -1),            # walls, facing out
               np.stack([np.full_like(pb, cid), qb, pb], -1)]                  # the base, facing down
+    return verts.astype(np.float32), np.concatenate(faces).astype(np.int64)
+
+
+MIN_ISLAND_CELLS = 16   # left-out prints: kept pieces smaller than this many grid cells are dropped (crumbs)
+
+
+def masked_heightfield_mesh(top, px_mm, base_mm, keep):
+    """Like heightfield_mesh, but only where ``keep`` (bool, the shape of ``top``) is true: a grid
+    cell is printed when its four corners are kept, and walls run down from every edge between a
+    printed cell and one that isn't, so the solid has holes (and separate pieces) where parts were
+    left out. Pieces smaller than MIN_ISLAND_CELLS are dropped, and where two cells touch only at a
+    corner one of the others is printed too, so every edge has just two faces. Each piece stands on
+    z = 0 with its own base. Returns (vertices, faces)."""
+    import cv2
+    top = np.asarray(top, np.float64)
+    rows, cols = top.shape
+    if rows < 2 or cols < 2:
+        raise ValueError("need at least 2 x 2 heights")
+    k = np.asarray(keep, bool)
+    cell = k[:-1, :-1] & k[:-1, 1:] & k[1:, :-1] & k[1:, 1:]
+    n, lab, stats, _ = cv2.connectedComponentsWithStats(cell.astype(np.uint8), connectivity=4)
+    crumbs = np.flatnonzero(stats[:, cv2.CC_STAT_AREA] < MIN_ISLAND_CELLS)
+    cell &= ~np.isin(lab, crumbs[crumbs > 0])
+    while True:                                          # cells touching only at a corner would share wall edges
+        a, b, c, d = cell[:-1, :-1], cell[:-1, 1:], cell[1:, :-1], cell[1:, 1:]
+        ad, bc = a & d & ~b & ~c, b & c & ~a & ~d
+        if not (ad.any() or bc.any()):
+            break
+        cell[:-1, 1:] |= ad                              # fill one of the other two
+        cell[:-1, :-1] |= bc
+    if not cell.any():
+        raise ValueError("nothing left to print: everything is deleted")
+    padded = np.pad(cell, 1)
+    ci, cj = np.nonzero(cell)
+    walls = {d: ~padded[ci + 1 + di, cj + 1 + dj] for d, (di, dj) in
+             {"bottom": (1, 0), "right": (0, 1), "top": (-1, 0), "left": (0, -1)}.items()}
+    tri = 4 * len(ci) + 2 * sum(int(w.sum()) for w in walls.values())
+    if tri > MAX_TRIANGLES:
+        raise ValueError(f"{rows} x {cols} heights make {tri:,} triangles; at most {MAX_TRIANGLES:,}: use fewer pixels")
+    jj, ii = np.meshgrid(np.arange(cols), np.arange(rows))
+    xy = np.stack([jj * px_mm, (rows - 1 - ii) * px_mm], axis=-1).reshape(-1, 2)
+    verts = np.concatenate([np.column_stack([xy, base_mm + top.ravel()]), np.column_stack([xy, np.zeros(rows * cols)])])
+    nb = rows * cols                                                         # bottom copy of vertex v: v + nb
+    idx = np.arange(rows * cols).reshape(rows, cols)
+    a, b, c, d = idx[ci, cj], idx[ci, cj + 1], idx[ci + 1, cj], idx[ci + 1, cj + 1]   # a b / c d
+    faces = [np.stack([c, d, b], -1), np.stack([c, b, a], -1),                 # top, facing up
+             np.stack([c + nb, b + nb, d + nb], -1), np.stack([c + nb, a + nb, b + nb], -1)]   # bottom, facing down
+    for name, (p, q) in {"bottom": (c, d), "right": (d, b), "top": (b, a), "left": (a, c)}.items():
+        w = walls[name]                                                      # the cell's outline, anticlockwise
+        p, q = p[w], q[w]
+        faces += [np.stack([p, p + nb, q + nb], -1), np.stack([p, q + nb, q], -1)]
     return verts.astype(np.float32), np.concatenate(faces).astype(np.int64)
 
 

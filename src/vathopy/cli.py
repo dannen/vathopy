@@ -252,7 +252,7 @@ def cmd_relief(a):
     a lithophane (dark = thick)."""
     import numpy as np
     from . import mesh
-    from .engine import exaggerate, orient, render, smooth_depth
+    from .engine import deleted, orient, render
     lk = LOOK.load(a.look) if a.look else LOOK.normalise({})
     if a.preset:
         lk["ramp"] = {"preset": a.preset}
@@ -263,23 +263,29 @@ def cmd_relief(a):
         cols = min(a.px or round(width_mm / 0.2) + 1, w_src)            # 0.2 mm a point; never more than the map has
         if a.px == 0:
             cols = w_src                                                # every pixel
+        sm = lk["smooth_depth"] if a.smooth_depth is None else a.smooth_depth
+        ex = lk["exaggerate"] if a.exaggerate is None else (
+            {"amount": a.exaggerate, "size": a.detail_size} if a.exaggerate > 0 else None)
+        seen, gone = deleted(depth, {**lk, "smooth_depth": sm, "exaggerate": ex})   # as the look sees it; what its cut takes
+        if gone is None or a.deleted == "keep" or not (gone > 0.5).any():
+            gone = None
+        else:
+            gone = mesh._resize(orient(gone[::-1], lk["orientation"]), cols)
         if a.lithophane:
             out, _ = render(depth, lk)                                  # the picture, turned as the look says
             srgb = np.clip(VIO.srgb_oetf(out[::-1, :, :3]), 0.0, 1.0)
             top, base = mesh.lithophane_heights(srgb, cols, a.min_mm, a.max_mm), a.min_mm
         else:
-            sm = lk["smooth_depth"] if a.smooth_depth is None else a.smooth_depth
-            if sm > 0:
-                depth = smooth_depth(depth, sm)
-            ex = lk["exaggerate"] if a.exaggerate is None else (
-                LOOK.normalise({"exaggerate": {"amount": a.exaggerate, "size": a.detail_size}})["exaggerate"] if a.exaggerate > 0 else None)
-            depth = exaggerate(depth, ex)
-            top = mesh.relief_heights(orient(depth[::-1], lk["orientation"]), cols, a.relief_mm, a.invert)
+            top = mesh.relief_heights(orient(seen[::-1], lk["orientation"]), cols, a.relief_mm, a.invert)
             base = a.base_mm
+        if gone is not None and (a.deleted == "flat" or a.wrap != "flat"):   # wrapped prints can't have holes
+            top = top * (1.0 - np.clip(gone, 0.0, 1.0))
         if a.wrap == "cylinder":                                        # --base-mm is the wall behind the relief
             verts, faces = mesh.cylinder_mesh(top, a.radius_mm, base, a.arc_deg)
         elif a.wrap == "sphere":
             verts, faces = mesh.sphere_mesh(top, a.radius_mm, base, a.arc_deg, a.lat_deg)
+        elif gone is not None and a.deleted == "out":
+            verts, faces = mesh.masked_heightfield_mesh(top, a.width_mm / (top.shape[1] - 1), base, gone < 0.5)
         else:
             verts, faces = mesh.heightfield_mesh(top, a.width_mm / (top.shape[1] - 1), base)
         suffix = ("_lithophane" if a.lithophane else "_relief") + ("" if a.wrap == "flat" else f"_{a.wrap}")
@@ -427,6 +433,9 @@ def main(argv=None):
     rl.add_argument("--lat-deg", type=float, metavar="DEG",
                     help="--wrap sphere: how far from top to bottom (180 = pole to pole; default the picture's proportions)")
     rl.add_argument("--invert", action="store_true", help="far raised instead of near (a mould)")
+    rl.add_argument("--deleted", choices=("out", "flat", "keep"), default="out",
+                    help="what the look's cut deletes becomes: left out, holes and all (default), flat on the base, "
+                         "or printed anyway; wrapped prints can't have holes, so there it lies flat")
     rl.add_argument("--smooth-depth", type=float, metavar="R", help="smooth the depth first (px; default the look's)")
     rl.add_argument("--exaggerate", type=float, metavar="A",
                     help="make the relief more pronounced: details x (1 + A) against what's round them (0-10; default the look's)")

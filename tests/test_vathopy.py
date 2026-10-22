@@ -882,7 +882,7 @@ def test_heightfield_mesh_is_a_closed_solid_with_the_right_volume(tmp_path):
     lit = mesh.lithophane_heights(np.dstack([depth] * 3), 20, 0.8, 3.0)
     assert lit.min() >= 0 and lit.max() <= 2.2 + 1e-6 and lit[:, 0].mean() > lit[:, -1].mean()
     with pytest.raises(ValueError):
-        mesh.heightfield_mesh(np.zeros((3000, 2500)), 0.1, 1.0)
+        mesh.heightfield_mesh(np.zeros((3500, 3200)), 0.1, 1.0)
 
 
 def two_planes(h=120, w=160):
@@ -1059,3 +1059,27 @@ def test_exaggerate_lifts_details_and_keeps_steps():
     assert e.min() == pytest.approx(d.min()) and e.max() == pytest.approx(d.max())   # the same range
     out, _ = vathopy.render(d, {"cycles": 2, "exaggerate": {"amount": 3, "size": 0.05}})
     assert out.shape[:2] == d.shape
+
+
+def test_prints_leave_out_what_the_cut_deletes():
+    from vathopy import engine, mesh
+    rng = np.random.default_rng(4)
+    top = rng.random((30, 40)) * 3
+    keep = np.ones((30, 40), bool)
+    keep[10:20, 10:20] = False                                                  # a hole
+    keep[:, 30:32] = False                                                      # a strip: two pieces
+    keep[2, 2] = False                                                          # a pinhole
+    keep[22:27, 4:9] = keep[26:28, 8:10] = False                                # holes touching at a corner
+    keep[22:24, 20:24] = keep[24:26, 24:28] = False
+    v, f = mesh.masked_heightfield_mesh(top, 0.5, 2.0, keep)
+    assert mesh.check_closed(f) and mesh.volume(v, f) > 0
+    full = mesh.heightfield_mesh(top, 0.5, 2.0)
+    same = mesh.masked_heightfield_mesh(top, 0.5, 2.0, np.ones_like(keep))
+    assert mesh.volume(*same) == pytest.approx(mesh.volume(*full))             # nothing left out: the same solid
+    assert mesh.volume(v, f) < mesh.volume(*full)
+    with pytest.raises(ValueError):
+        mesh.masked_heightfield_mesh(top, 0.5, 2.0, np.zeros_like(keep))
+    d = two_planes()
+    seen, gone = engine.deleted(d, {"cut": {"depth": 0.5}})
+    assert np.array_equal(seen, d) and gone[60, 80] == 0.0 and gone[5, 5] == 1.0   # the far background goes
+    assert engine.deleted(d, {})[1] is None

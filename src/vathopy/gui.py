@@ -49,7 +49,7 @@ from . import io as VIO
 from . import look as LOOK
 from . import meta as META
 from . import palettes as PAL
-from .engine import exaggerate, focus_depth_at, focus_weights, orient, render, smooth_depth, view_shift
+from .engine import deleted, exaggerate, focus_depth_at, focus_weights, orient, render, smooth_depth, view_shift
 from .probe import probe
 from .ramp import PRESETS, Ramp
 
@@ -581,26 +581,34 @@ def make_handler(maps, favourites, preview_size, auth=None, palettes_dir=None):
             o = s.get("orientation") or {}
             o = {"turns": int(o.get("turns", 0) or 0), "mirror": bool(o.get("mirror"))}
             depth = maps.depth(req["map"], float(s.get("smooth", 0) or 0))          # rows bottom-up
-            depth = exaggerate(depth, look_from_settings(s)["exaggerate"])
+            lk = look_from_settings({**s, "orientation": {}})
+            seen, gone = deleted(depth, lk)              # the depth as the picture sees it, and what its cut takes
             if req.get("mode") == "lithophane":
-                lk = look_from_settings({**s, "orientation": {}})
                 out, _ = render(depth, lk, maps.photo(req["map"], lk))
                 td = np.clip(VIO.srgb_oetf(out[::-1, :, :3]), 0.0, 1.0)              # the picture, top-down
             else:
-                td = depth[::-1]
+                td = seen[::-1]
+            dropped = req.get("deleted") or "out"        # deleted parts: left out (holes), flat, or kept
+            if dropped not in ("out", "flat", "keep"):
+                raise ValueError("deleted must be out, flat or keep")
+            if gone is None or dropped == "keep" or not (gone > 0.5).any():
+                gone = None
             crop = req.get("crop") or {}
             t, r, b, l = (int(crop.get(k, 0) or 0) for k in ("top", "right", "bottom", "left"))
             h, w = td.shape[:2]
             if t + b >= h or l + r >= w:
                 raise ValueError("the crop leaves nothing")
             td = orient(td[t:h - b, l:w - r], o)
+            if gone is not None:
+                gone = orient(gone[::-1][t:h - b, l:w - r], o)
             wrap = req.get("wrap") or "flat"
             if wrap not in ("flat", "cylinder", "sphere"):
                 raise ValueError("wrap must be flat, cylinder or sphere")
             radius, arc = float(req.get("radius_mm", 40)), float(req.get("arc_deg", 360))
             width_mm = float(req.get("width_mm", 100)) if wrap == "flat" else radius * np.radians(arc)   # round the outside
-            px = req.get("px")                           # a number, or "all" / "half" of the map's own pixels
-            cols = (td.shape[1] if px == "all" else max(2, td.shape[1] // 2) if px == "half"
+            px = req.get("px")                           # a number, or a share of the map's own pixels
+            share = {"half": 0.5, "three_quarters": 0.75, "all": 1.0}.get(px)
+            cols = (max(2, round(td.shape[1] * share)) if share
                     else min(int(px or round(width_mm / 0.2) + 1), td.shape[1]))
             if req.get("mode") == "lithophane":
                 lo, hi = float(req.get("min_mm", 0.8)), float(req.get("max_mm", 3.0))
@@ -608,12 +616,18 @@ def make_handler(maps, favourites, preview_size, auth=None, palettes_dir=None):
             else:
                 top = mesh.relief_heights(td, cols, float(req.get("relief_mm", 8)), bool(req.get("invert")))
                 base = float(req.get("base_mm", 2))
+            if gone is not None:
+                g = mesh._resize(gone, cols)
+                if dropped == "flat" or wrap != "flat":  # wrapped prints can't have holes: deleted parts lie flat
+                    top = top * (1.0 - np.clip(g, 0.0, 1.0))
             if not (width_mm > 0 and base >= 0 and cols >= 2):
                 raise ValueError("width and base must be above 0, and at least 2 points across")
             if wrap == "cylinder":                       # the base is the wall behind the relief
                 verts, faces = mesh.cylinder_mesh(top, radius, base, arc)
             elif wrap == "sphere":
                 verts, faces = mesh.sphere_mesh(top, radius, base, arc, float(req.get("lat_deg", 0) or 0) or None)
+            elif gone is not None and dropped == "out":
+                verts, faces = mesh.masked_heightfield_mesh(top, width_mm / (top.shape[1] - 1), base, g < 0.5)
             else:
                 verts, faces = mesh.heightfield_mesh(top, width_mm / (top.shape[1] - 1), base)
             stem = (f"{_out_name(req)}_{'lithophane' if req.get('mode') == 'lithophane' else 'relief'}"

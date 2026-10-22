@@ -1050,6 +1050,47 @@ def exaggerate(depth, ex):
     return (lo + (out - olo) * np.float32(rng / ((ohi - olo) or 1.0))).astype(np.float32)   # back into the old range
 
 
+def _prepared(depth, lk, photo_bu=None):
+    """The depth as a look sees it (moved by its view shift, smoothed, exaggerated), the look with
+    its focus and keep points given in pixels resolved to depths and pivots, and the photo moved
+    alike: what render and deleted work from."""
+    depth, photo_bu = view_shift(depth, lk["view_shift"], photo_bu)
+    if lk["smooth_depth"] > 0:
+        depth = smooth_depth(depth, lk["smooth_depth"])
+    depth = exaggerate(depth, lk["exaggerate"])
+    if any(fo["at"] is not None for fo in lk["focus"]):
+        h_, w_ = depth.shape
+        lk = dict(lk, focus=[dict(fo, depth=focus_depth_at(depth, lk, *fo["at"]), at=None,
+                                  pivot=[min(max((fo["at"][0] + 0.5) / w_, 0.0), 1.0),
+                                         min(max((fo["at"][1] + 0.5) / h_, 0.0), 1.0)])
+                             if fo["at"] is not None else fo for fo in lk["focus"]])
+    if lk["cut"] is not None and any(k["at"] is not None for k in lk["cut"]["keep"]):
+        h_, w_ = depth.shape                             # keep shapes given by a pixel: its depth and place
+        lk = dict(lk, cut=dict(lk["cut"], keep=[dict(k, depth=focus_depth_at(depth, lk, *k["at"]), at=None,
+                                                     pivot=[min(max((k["at"][0] + 0.5) / w_, 0.0), 1.0),
+                                                            min(max((k["at"][1] + 0.5) / h_, 0.0), 1.0)])
+                                                if k["at"] is not None else k for k in lk["cut"]["keep"]]))
+    return depth, lk, photo_bu
+
+
+def deleted(depth, look):
+    """What a look's cut takes away, for 3D prints that leave it out: (the depth as the look sees it,
+    0..1 how much of each pixel is deleted, or None without a cut), rows bottom-up, the map's size,
+    before the look's orientation."""
+    lk = normalise(look)
+    depth = np.ascontiguousarray(depth, dtype=np.float32)
+    depth, lk, _ = _prepared(depth, lk)
+    if lk["cut"] is None:
+        return depth, None
+    h_, w_ = depth.shape
+    pw, ph = plane_dims(lk, depth.shape)
+    f = remapped(depth, lk)
+    lo, hi = _window(f, lk)
+    px, py = plane_pixel_xy(pw, ph, h_, w_)
+    return depth, cut_weight(f, lk["cut"], lo, hi, pw, ph, px, py, float(lk["plane"]["midlevel"]),
+                             max(float(lk["plane"]["scale"]), MIN_SCALE), lk["depth_scale"])
+
+
 def render(depth, look, photo=None):
     """Render a look onto a depth map.
 
@@ -1077,22 +1118,7 @@ def render(depth, look, photo=None):
         if p.shape[:2] != depth.shape:
             p = cv2.resize(p, (depth.shape[1], depth.shape[0]), interpolation=cv2.INTER_AREA if p.shape[1] > depth.shape[1] else cv2.INTER_LINEAR)
         photo_bu = np.ascontiguousarray(p[::-1])
-    depth, photo_bu = view_shift(depth, lk["view_shift"], photo_bu)
-    if lk["smooth_depth"] > 0:
-        depth = smooth_depth(depth, lk["smooth_depth"])
-    depth = exaggerate(depth, lk["exaggerate"])
-    if any(fo["at"] is not None for fo in lk["focus"]):
-        h_, w_ = depth.shape
-        lk = dict(lk, focus=[dict(fo, depth=focus_depth_at(depth, lk, *fo["at"]), at=None,
-                                  pivot=[min(max((fo["at"][0] + 0.5) / w_, 0.0), 1.0),
-                                         min(max((fo["at"][1] + 0.5) / h_, 0.0), 1.0)])
-                             if fo["at"] is not None else fo for fo in lk["focus"]])
-    if lk["cut"] is not None and any(k["at"] is not None for k in lk["cut"]["keep"]):
-        h_, w_ = depth.shape                             # keep shapes given by a pixel: its depth and place
-        lk = dict(lk, cut=dict(lk["cut"], keep=[dict(k, depth=focus_depth_at(depth, lk, *k["at"]), at=None,
-                                                     pivot=[min(max((k["at"][0] + 0.5) / w_, 0.0), 1.0),
-                                                            min(max((k["at"][1] + 0.5) / h_, 0.0), 1.0)])
-                                                if k["at"] is not None else k for k in lk["cut"]["keep"]]))
+    depth, lk, photo_bu = _prepared(depth, lk, photo_bu)
     ss = lk["supersample"]
     if photo_bu is not None:
         if ss > 1:

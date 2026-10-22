@@ -243,7 +243,7 @@ A **relief** raises the near parts `--relief-mm` above the far ones. A **lithoph
 (from `-l`: a look, or a PNG the GUI saved) as thickness, dark parts thick and light parts thin, so it shows
 the picture when lit from behind. Points are 0.2 mm apart by default (`--px` sets how many across, never more
 than the map has; `--px 0` uses every pixel); a 100 mm print is about 450,000 triangles, 22 MB, and every pixel
-of a 2496 px map about 9.4 million, 470 MB (the most is 12 million). More points only help if the printer can
+of a 2496 px map about 9.4 million, 470 MB (the most is 20 million). More points only help if the printer can
 show them (resin, or a bigger print); `--exaggerate` brings out detail that's there but shallow. The look's
 orientation is used.
 
@@ -251,6 +251,11 @@ orientation is used.
 (360, the default, joins its two ends), its height keeps the picture's proportions (on a sphere `--lat-deg` sets
 it; 180 runs pole to pole, closed at the poles), and the relief stands out from `--radius-mm` with a
 `--base-mm` thick wall inside it. A lithophane wrapped round a cylinder is a lamp shade.
+
+What the look's cut deletes (`cut`: the slabs and removed parts) is left out of the print by default: holes
+where it was, separate pieces where it splits the picture, each on its own base. `--deleted flat` lays it
+flat on the base instead, `--deleted keep` prints it anyway. Wrapped prints can't have holes, so there it lies
+flat. The relief follows the look's viewpoint shift and exaggeration as well, like the picture.
 
 ```bash
 vathopy relief depth.exr -o vase.stl --wrap cylinder --radius-mm 40 --relief-mm 5 --base-mm 2
@@ -538,8 +543,10 @@ install -e .`) means no reinstall is needed unless `requirements.txt` changed.
   elsewhere.
 - **3D print:** Flat, or wrapped round a cylinder or a sphere (radius, how far round, and on a sphere how far
   from top to bottom; the base becomes the wall inside), Relief or Lithophane, width, points across, relief height and base (or thinnest/thickest),
-  Far raised, Use the crop, and **Detail**: Points across as typed, **Medium** (half the map's pixels) or
-  **Large** (every pixel: the most detail, big files). **Save local** writes the STL into `--favourites` on the machine running
+  Far raised, Use the crop, **Detail**: Points across as typed, **medium** (50% of the map's pixels),
+  **large** (75%) or **maximum** (every pixel: the most detail, big files), and **Deleted parts**: what Delete
+  from far / near and deleted parts take away is **left out** (holes, and separate pieces; the default),
+  **flat on the base**, or printed anyway. The print follows the picture's viewpoint and exaggeration too. **Save local** writes the STL into `--favourites` on the machine running
   vathopy (`<map>_<look name or "vathopy">_relief.stl` or `…_lithophane.stl`, never overwriting: `-001`, …);
   **Download STL** sends the same file to the browser and writes nothing on the server. Both build it from the
   map (cropped and turned as the picture is shown) and say its size and triangle count. PrusaSlicer reads the

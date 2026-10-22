@@ -358,9 +358,12 @@
       <option value="flat">Flat</option>
       <option value="cylinder">Wrapped round a cylinder</option>
       <option value="sphere">Wrapped round a sphere</option></select>
-    <select id="stl_detail" aria-label="Detail" style="margin-top:6px" title="How many points the mesh has across: as Points across says, or from the map's own pixels. More points, bigger files: every pixel of a 2496 px map is about 9 million triangles (465 MB), half of them about 2.3 million (117 MB); worth it printed large or on a resin printer">
-      <option value="custom">Detail: as Points across</option><option value="half">Detail: medium (half the pixels)</option>
-      <option value="all">Detail: large (every pixel)</option></select>
+    <select id="stl_detail" aria-label="Detail" style="margin-top:6px" title="How many points the mesh has across: as Points across says, or from the map's own pixels. More points, bigger files: every pixel of a 2496 px map is about 9 million triangles (465 MB), 75% about 5.3 million (263 MB), 50% about 2.3 million (117 MB); worth it printed large or on a resin printer">
+      <option value="custom">Detail: as Points across</option><option value="half">Detail: medium (50% of the pixels)</option>
+      <option value="three_quarters">Detail: large (75% of the pixels)</option><option value="all">Detail: maximum (every pixel)</option></select>
+    <select id="stl_deleted" aria-label="Deleted parts" style="margin-top:6px" title="What the parts the picture deletes (Delete from far / near, deleted parts) become in the print. Wrapped prints can't have holes: there they lie flat">
+      <option value="out">Deleted parts: left out (holes)</option><option value="flat">Deleted parts: flat on the base</option>
+      <option value="keep">Deleted parts: printed anyway</option></select>
     <div class="nums">
       <label for="stl_width" class="flat-only">Width (mm)</label><input type="number" id="stl_width" class="flat-only" min="5" max="2000" step="1" value="100">
       <label for="stl_radius" class="wrap-only">Radius (mm)</label><input type="number" id="stl_radius" class="wrap-only" min="5" max="1000" step="1" value="40"
@@ -963,7 +966,7 @@ async function init() {
 // the settings in this browser; loading the page puts them back. Focuses and keep shapes come back
 // only on the same map (their depths belong to it).
 const PAGE_KEY = "vathopy.page";
-const STL_FIELDS = ["stl_mode", "stl_wrap", "stl_radius", "stl_arc", "stl_lat", "stl_width", "stl_px", "stl_relief", "stl_base", "stl_min", "stl_max", "stl_invert", "stl_crop", "stl_detail"];
+const STL_FIELDS = ["stl_mode", "stl_wrap", "stl_radius", "stl_arc", "stl_lat", "stl_width", "stl_px", "stl_relief", "stl_base", "stl_min", "stl_max", "stl_invert", "stl_crop", "stl_detail", "stl_deleted"];
 let restoring = false;
 function savePage() {
   if (restoring || !$("map").value) return;
@@ -1530,7 +1533,7 @@ for (const id of ["stl_radius", "stl_arc", "stl_lat", "stl_relief", "stl_invert"
 showStlMode();
 function stlRequest(save) {
   return { map: $("map").value, settings: settings(), name: $("name").value, mode: $("stl_mode").value,
-           width_mm: +$("stl_width").value, px: $("stl_detail").value === "custom" ? +$("stl_px").value : $("stl_detail").value, relief_mm: +$("stl_relief").value,
+           width_mm: +$("stl_width").value, px: $("stl_detail").value === "custom" ? +$("stl_px").value : $("stl_detail").value, deleted: $("stl_deleted").value, relief_mm: +$("stl_relief").value,
            base_mm: +$("stl_base").value, min_mm: +$("stl_min").value, max_mm: +$("stl_max").value,
            invert: $("stl_invert").checked, crop: $("stl_crop").checked ? crop : null, save,
            wrap: $("stl_wrap").value, radius_mm: +$("stl_radius").value, arc_deg: +$("stl_arc").value, lat_deg: +$("stl_lat").value };
