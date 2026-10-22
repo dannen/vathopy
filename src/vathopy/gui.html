@@ -83,7 +83,7 @@
   button.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); border-radius: 6px;
     padding: 6px 10px; font: inherit; cursor: pointer; }
   .inline { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
-  .note { color: var(--dim); font-size: 12px; margin-top: 6px; white-space: pre-line; }
+  .note { color: var(--dim); font-size: 12px; margin-top: 6px; white-space: pre-line; overflow-wrap: anywhere; }
   #status { position: fixed; left: calc(320px + 12px); bottom: 10px; z-index: 3; background: var(--overlay); padding: 4px 9px;
     border-radius: 6px; color: var(--dim); font-variant-numeric: tabular-nums; pointer-events: none; }
   #map { padding: 3px; }
@@ -108,9 +108,9 @@
   main.actual .work { align-items: flex-start; max-width: none; }
   main.actual #view, main.actual #view2, main.actual #pair.on #viewbox { max-width: none; max-height: none; cursor: zoom-out; }
   main #view.picking, main #view2.picking { cursor: crosshair; }
-  #pick, #pick_keep, #pick_sel, #download, #save_local, #pairbtn, #download2, #save_local2 { display: inline-flex; align-items: center; gap: 7px; }
+  #pick, #pick_keep, #pick_sel, #pick_remove, #download, #save_local, #pairbtn, #download2, #save_local2 { display: inline-flex; align-items: center; gap: 7px; }
   #download .icon, #save_local .icon, #download2 .icon, #save_local2 .icon { width: 18px; height: 18px; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; fill: none; flex: none; }
-  #pick .plus, #pick_keep .plus, #pick_sel .plus { width: 20px; height: 20px; stroke: currentColor; stroke-width: 3.2; stroke-linecap: round; flex: none; }
+  #pick .plus, #pick_keep .plus, #pick_sel .plus, #pick_remove .plus { width: 20px; height: 20px; stroke: currentColor; stroke-width: 3.2; stroke-linecap: round; flex: none; }
   button.ghost[aria-pressed=true] { border-color: var(--accent); color: var(--focus); }
   .band { border: 1px solid var(--line); border-radius: 8px; padding: 2px 8px 8px; margin-top: 8px; }
   .band .head { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; color: var(--dim); }
@@ -240,6 +240,10 @@
       <input type="range" id="contour_strength" min="0" max="1" step="0.05" value="0"></div>
     <div class="row"><label for="contour_width">Line width (px)</label><output id="contour_width_v"></output>
       <input type="range" id="contour_width" min="0.5" max="8" step="0.5" value="1"></div>
+    <div class="row" title="Makes the relief more pronounced: bumps, folds and faces stand out from what's around them (the steps between things stay as they are). Also used by the 3D view and 3D print. Smoothing first keeps the depth map's own noise down"><label for="exaggerate">Exaggerate depth</label><output id="exaggerate_v"></output>
+      <input type="range" id="exaggerate" min="0" max="5" step="0.1" value="0"></div>
+    <div class="row" title="How big the things it brings out are: small for creases and texture, large for whole faces and bodies"><label for="exaggerate_size">Detail size</label><output id="exaggerate_size_v"></output>
+      <input type="range" id="exaggerate_size" min="0.005" max="0.1" step="0.005" value="0.02"></div>
 
     <h2>Viewpoint</h2>
     <div class="row" title="Look from further left (◀) or right (▶): near things move against far ones, by their depth"><span class="lab"><label for="view_x">Left / right</label>
@@ -280,6 +284,10 @@
       <svg class="plus" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2v16M2 10h16"/></svg>Keep a shape</button></div>
     <div class="note" id="keep_note"></div>
     <div id="keeps"></div>
+    <div class="inline"><button class="ghost" id="pick_remove" aria-pressed="false" title="Then click the picture: the thing there, up to its depth edges, is deleted too (it turns black or white like the cut; Ⓓ marks it). Shift-click to keep deleting.">
+      <svg class="plus" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2v16M2 10h16"/></svg>Delete a part</button></div>
+    <div class="note" id="remove_note"></div>
+    <div id="removes"></div>
 
     <h2>Selections</h2>
     <div class="note" style="margin-top:0">A person or thing, found by its depth edges, with its own palette and cycles.</div>
@@ -290,14 +298,16 @@
 
     <h2>Photo</h2>
     <div class="note" id="photo_note" style="margin-top:0"></div>
-    <div class="row" title="How much of the original photo shows over the picture: 0 = none"><label for="overlay_opacity">Photo over the picture</label><output id="overlay_opacity_v"></output>
+    <div class="row" title="How much of the original photo shows over the picture: 0 = none"><span class="lab"><label for="overlay_opacity">Photo over the picture</label>
+      <label class="lock" title="Show the photo (O); off keeps its settings"><input type="checkbox" id="overlay_on" checked> On</label></span><output id="overlay_opacity_v"></output>
       <input type="range" id="overlay_opacity" min="0" max="1" step="0.05" value="0"></div>
     <div class="shaperow"><select id="overlay_mode" aria-label="How the photo blends in" title="How the photo blends in">
         <option value="normal">Normal</option><option value="multiply">Multiply</option><option value="screen">Screen</option>
         <option value="soft_light">Soft light</option></select>
       <select id="overlay_where" aria-label="Where the photo shows" title="Where the photo shows (the selections are the Targets above)">
         <option value="all">Everywhere</option><option value="selections">Only on the targets</option><option value="outside">Outside the targets</option></select></div>
-    <div class="checks"><label title="The photo in black and white"><input type="checkbox" id="overlay_grey"> Black and white</label></div>
+    <div class="checks"><label title="The photo in black and white"><input type="checkbox" id="overlay_grey"> Black and white</label>
+      <label title="The photo's negative: dark for light, and opposite colours"><input type="checkbox" id="overlay_invert"> Invert</label></div>
 
     <h2>3D view</h2>
     <div class="note" style="margin-top:0">Where the shapes, focuses and cuts sit in the scene (or, with 3D print set to a cylinder or sphere, the picture wrapped round it): drag to turn it, scroll to zoom, right-drag to move; double-click for the start view.</div>
@@ -354,14 +364,15 @@
       <label for="stl_lat" class="sphere-only">Top to bottom (°)</label><input type="number" id="stl_lat" class="sphere-only" min="0" max="180" step="5" value="0"
         title="How far from top to bottom the picture's height covers, centred on the equator: 180 = pole to pole; 0 = keep the picture's proportions">
       <label for="stl_px">Points across</label><input type="number" id="stl_px" min="2" max="2000" step="1" value="501"
-        title="Resolution: 0.2 mm apart suits most printers; never more than the map has">
+        title="Resolution: 0.2 mm apart suits most printers; never more than the map has (Every pixel below uses them all)">
       <label for="stl_relief" class="relief-only">Relief height (mm)</label><input type="number" id="stl_relief" class="relief-only" min="0" max="500" step="0.5" value="8">
       <label for="stl_base" class="relief-only" id="stl_base_label">Base (mm)</label><input type="number" id="stl_base" class="relief-only" min="0" max="100" step="0.5" value="2">
       <label for="stl_min" class="litho-only">Thinnest (mm)</label><input type="number" id="stl_min" class="litho-only" min="0.2" max="20" step="0.1" value="0.8">
       <label for="stl_max" class="litho-only">Thickest (mm)</label><input type="number" id="stl_max" class="litho-only" min="0.3" max="50" step="0.1" value="3">
     </div>
     <div class="checks"><label class="relief-only"><input type="checkbox" id="stl_invert"> Far raised (a mould)</label>
-      <label title="Print only what the crop above keeps"><input type="checkbox" id="stl_crop" checked> Use the crop</label></div>
+      <label title="Print only what the crop above keeps"><input type="checkbox" id="stl_crop" checked> Use the crop</label>
+      <label title="The most detail: a point for every pixel of the map, whatever Points across says. Big files (a 2496 px map makes about 9 million triangles, 465 MB); best printed large or on a resin printer"><input type="checkbox" id="stl_full"> Every pixel</label></div>
     <div class="inline"><button class="ghost" id="stl_save" title="Write the STL (millimetres, turned like the picture) into the favourites folder on the machine running vathopy">
       <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 3.5h9.5L16.5 6.5v10h-12.5zM7 3.5v4h6v-4M7 16.5v-5h6v5"/></svg>Save local</button>
       <button class="ghost" id="stl_download" title="Download a binary STL (millimetres), turned like the picture">
@@ -401,13 +412,15 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-const sliders = ["shift", "view_x", "view_y", "view_strength", "overlay_opacity", "depth_scale", "cut_depth", "cut_near", "cut_softness", "cycles", "cycles_fine", "contours", "contour_strength", "contour_width", "smooth", "supersample"];
+const sliders = ["shift", "view_x", "view_y", "view_strength", "overlay_opacity", "exaggerate", "exaggerate_size", "depth_scale", "cut_depth", "cut_near", "cut_softness", "cycles", "cycles_fine", "contours", "contour_strength", "contour_width", "smooth", "supersample"];
 let palette = "FRINGE";
 const fmt = {
   view_x: (v) => (+v === 0 ? "straight on" : `${+v > 0 ? "▶ " : "◀ "}${Math.abs(+v).toFixed(2)}`),
   view_y: (v) => (+v === 0 ? "straight on" : `${+v > 0 ? "▲ " : "▼ "}${Math.abs(+v).toFixed(2)}`),
   view_strength: (v) => `${(+v * 100).toFixed(1)}% of the width`,
   overlay_opacity: (v) => (+v === 0 ? "off" : `${Math.round(+v * 100)}%`),
+  exaggerate: (v) => (+v === 0 ? "off" : `${(1 + +v).toFixed(1)}×`),
+  exaggerate_size: (v) => `${(+v * 100).toFixed(1)}% of the width`,
   depth_scale: (v) => `${(+v).toFixed(2)}×`,
   cut_depth: (v) => (+v === 0 ? "off" : +v >= 1 ? "everything" : (+v).toFixed(3)),
   cut_near: (v) => (+v === 0 ? "off" : +v >= 1 ? "everything" : (+v).toFixed(3)),
@@ -664,7 +677,35 @@ function buildSels() {
   drawPins();
 }
 
-// Pins: a dot on the picture at each focus's and keep shape's point (F1…, K1…). Dragging one moves its
+// Deleted parts: a thing grown from a clicked point up to its depth edges, turned black or white with the cut.
+let removes = [];
+const REMOVE_COLOUR = "#e62828";
+const REMOVE_SLIDERS = SEL_SLIDERS.filter(([key]) => key !== "cycles");
+const REMOVE_DEFAULTS = { step: 0.003, range: 0, grow: 3, softness: 1 };
+const REMOVE_TIPS = { ...SEL_TIPS, grow: "Widen it by this many pixels, to take in the soft pixels along its edge" };
+function buildRemoves() {
+  buildPanels({ box: "removes", list: removes, title: "Deleted", colour: () => REMOVE_COLOUR, sliders: REMOVE_SLIDERS,
+                defaults: REMOVE_DEFAULTS, shapes: ["plane"], fill: false, rebuild: buildRemoves, text: selText, tips: REMOVE_TIPS,
+                foldText: () => "",
+                extra: (div, b) => {
+                  const checks = document.createElement("div");
+                  checks.className = "checks";
+                  for (const [key, label, tip] of [["floors", "Stop at floors", "Don't spread onto ground that comes nearer going down the picture (under someone's feet)"],
+                                                   ["invert", "Everything else", "Delete everything except this"]]) {
+                    const l = document.createElement("label");
+                    l.title = tip;
+                    l.innerHTML = `<input type="checkbox"> ${label}`;
+                    const c = l.querySelector("input");
+                    c.checked = !!b[key];
+                    c.onchange = () => { b[key] = c.checked; full(); };
+                    checks.appendChild(l);
+                  }
+                  div.querySelector(".shaperow").after(checks);
+                } });
+  drawPins();
+}
+
+// Pins: a dot on the picture at each focus's, keep shape's, target's and deleted part's point (F1…, K1…, T1…, D). Dragging one moves its
 // point; on release it takes the depth under the new place (Shift held: keeps its depth) and renders.
 // A click without a drag opens its panel. Locked ones don't move. Points are kept in the map's own
 // coordinates; shownPoint/mapPoint translate for a turned or mirrored picture.
@@ -682,15 +723,16 @@ function drawPins() {
   if (box.hidden) return;
   const lists = [[bands, "F", (i) => FOCUS_COLOURS[i % FOCUS_COLOURS.length], "bands", buildBands, "Focus", true],
                  [keeps, "K", () => KEEP_COLOUR, "keeps", buildKeeps, "Keep", true],
-                 [sels, "T", () => SEL_COLOUR, "sels", buildSels, "Target", false]];
+                 [sels, "T", () => SEL_COLOUR, "sels", buildSels, "Target", false],
+                 [removes, "D", () => REMOVE_COLOUR, "removes", buildRemoves, "Deleted part", false]];
   for (const [list, tag, colour, panelBox, rebuild, title, hasDepth] of lists) list.forEach((b, i) => {
     if (b.x == null || b.y == null) return;      // a focus from a Blender look: no point on the picture
     const pin = document.createElement("div");
     pin.className = "pin" + (b.enabled === false ? " off" : "") + (b.locked ? " locked" : "");
-    pin.textContent = tag + (i + 1);
+    pin.textContent = tag === "D" && list.length === 1 ? "D" : tag + (i + 1);
     pin.style.background = colour(i);
     pin.title = `${title} ${i + 1}` + (b.locked ? " (locked)" : hasDepth ? ": drag to move it; Shift as you let go keeps its depth; click to open its panel"
-      : ": drag to grow it from another point; click to open its panel");
+      : `: drag to ${tag === "D" ? "delete what's at" : "grow it from"} another point; click to open its panel`);
     const place = (x, y) => { const [sx, sy] = shownPoint(x, y); pin.style.left = `${100 * sx}%`; pin.style.top = `${100 * sy}%`; };
     place(b.x, b.y);
     pin.addEventListener("pointerdown", (ev) => {
@@ -751,8 +793,9 @@ function setCycles(c) {
 }
 function settings() {
   const s = { palette, invert: $("invert").checked, equalize: $("equalize").checked,
-              focus_style: $("focus_style").value, focus: bands, keep: keeps, selections: sels, cut_fill: $("cut_fill").value,
-              overlay_mode: $("overlay_mode").value, overlay_where: $("overlay_where").value, overlay_grey: $("overlay_grey").checked };
+              focus_style: $("focus_style").value, focus: bands, keep: keeps, selections: sels, removes, cut_fill: $("cut_fill").value,
+              overlay_mode: $("overlay_mode").value, overlay_where: $("overlay_where").value, overlay_grey: $("overlay_grey").checked,
+              overlay_invert: $("overlay_invert").checked, overlay_on: $("overlay_on").checked };
   for (const k of sliders) s[k] = parseFloat($(k).value);
   s.cycles = cyclesTotal(); delete s.cycles_fine;
   s.orientation = { ...orientation };
@@ -915,7 +958,7 @@ async function init() {
 // the settings in this browser; loading the page puts them back. Focuses and keep shapes come back
 // only on the same map (their depths belong to it).
 const PAGE_KEY = "vathopy.page";
-const STL_FIELDS = ["stl_mode", "stl_wrap", "stl_radius", "stl_arc", "stl_lat", "stl_width", "stl_px", "stl_relief", "stl_base", "stl_min", "stl_max", "stl_invert", "stl_crop"];
+const STL_FIELDS = ["stl_mode", "stl_wrap", "stl_radius", "stl_arc", "stl_lat", "stl_width", "stl_px", "stl_relief", "stl_base", "stl_min", "stl_max", "stl_invert", "stl_crop", "stl_full"];
 let restoring = false;
 function savePage() {
   if (restoring || !$("map").value) return;
@@ -944,7 +987,7 @@ function restorePage(maps) {
     }
     showStlMode();
     restoring = false;
-    applySettings(same ? p.settings : { ...p.settings, focus: [], keep: [], selections: [] }, p.name || "");   // renders, and saves
+    applySettings(same ? p.settings : { ...p.settings, focus: [], keep: [], selections: [], removes: [] }, p.name || "");   // renders, and saves
     showCrop();
     return true;
   } catch (e) {                                       // e.g. a palette that's gone: start as usual
@@ -982,7 +1025,7 @@ $("map").addEventListener("change", () => {
   setOrientation({}, false);                        // a new map starts the right way up
   mapSize = null; showCrop();                       // the new map's size comes with its render
   showTitle(); showPhoto();
-  bands = []; buildBands(); keeps = []; buildKeeps(); sels = []; buildSels(); setPicking(false); setView("result", false);   // their depths belong to the old map
+  bands = []; buildBands(); keeps = []; buildKeeps(); sels = []; buildSels(); removes = []; buildRemoves(); setPicking(false); setView("result", false);   // their depths belong to the old map
   full();
 });
 $("refresh").addEventListener("click", async () => {
@@ -1009,6 +1052,14 @@ const onPicture = async (ev) => {
   const r = ev.currentTarget.getBoundingClientRect();     // either picture: same map, same place
   const [x, y] = mapPoint((ev.clientX - r.left) / r.width, (ev.clientY - r.top) / r.height);
   if (!ev.shiftKey) setPicking(false);
+  if (target === "remove") {                       // like a target: it grows from the point at render time
+    if (removes.length >= MAX_FOCUS) { $("remove_note").textContent = `${MAX_FOCUS} is the most: remove one first`; return; }
+    if (removes.length >= 3) for (const o of removes) o.open = false;
+    removes.push({ x: +x.toFixed(4), y: +y.toFixed(4), ...REMOVE_DEFAULTS, floors: false, invert: false, enabled: true, open: true });
+    $("remove_note").textContent = "";
+    buildRemoves(); full();
+    return;
+  }
   if (target === "select") {                       // no depth needed: it grows from the point at render time
     if (sels.length >= MAX_FOCUS) { $("sel_note").textContent = `${MAX_FOCUS} is the most: remove one first`; return; }
     if (sels.length >= 3) for (const o of sels) o.open = false;
@@ -1040,20 +1091,22 @@ const onPicture = async (ev) => {
 };
 $("view").addEventListener("click", onPicture);
 $("view2").addEventListener("click", onPicture);
-// Picking: false, or what a click on the picture adds ("focus" or "keep").
+// Picking: false, or what a click on the picture adds ("focus", "keep", "select" or "remove").
 let picking = false;
 function setPicking(on, target = "focus") {
   picking = on ? target : false;
   $("pick").setAttribute("aria-pressed", picking === "focus");
   $("pick_keep").setAttribute("aria-pressed", picking === "keep");
   $("pick_sel").setAttribute("aria-pressed", picking === "select");
+  $("pick_remove").setAttribute("aria-pressed", picking === "remove");
   for (const id of ["view", "view2"]) $(id).classList.toggle("picking", !!picking);
 }
 $("pick").onclick = () => setPicking(picking !== "focus", "focus");
 $("pick_keep").onclick = () => setPicking(picking !== "keep", "keep");
 $("pick_sel").onclick = () => setPicking(picking !== "select", "select");
+$("pick_remove").onclick = () => setPicking(picking !== "remove", "remove");
 $("cut_fill").addEventListener("change", full);
-for (const id of ["overlay_mode", "overlay_where", "overlay_grey"]) $(id).addEventListener("change", full);
+for (const id of ["overlay_mode", "overlay_where", "overlay_grey", "overlay_invert", "overlay_on"]) $(id).addEventListener("change", full);
 // Which photo the map was made from (found by its name in the photos folder), for Photo over the picture.
 async function showPhoto() {
   const map = $("map").value;
@@ -1073,6 +1126,9 @@ document.addEventListener("keydown", (ev) => {
     setView(view === "result" ? "highlight" : "result");
   if ((ev.key === "z" || ev.key === "Z") && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !typing) setLens(!lensOn);
   if ((ev.key === "p" || ev.key === "P") && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !typing) setPins(!pinsOn);
+  if ((ev.key === "o" || ev.key === "O") && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !typing) {
+    $("overlay_on").checked = !$("overlay_on").checked; full();
+  }
   if ((ev.key === "r" || ev.key === "R") && !ev.ctrlKey && !ev.metaKey && !ev.altKey && (!typing || el === $("map"))) {
     ev.preventDefault();                             // in the map list: refresh rather than jump to a name starting with r
     $("refresh").click();
@@ -1176,9 +1232,11 @@ function applySettings(s, name) {
   bands = (s.focus || []).map((b) => ({ ...b, open: s.focus.length <= 3 })); buildBands(); setView("result", false);
   keeps = (s.keep || []).map((k) => ({ ...k, open: s.keep.length <= 3 })); buildKeeps();
   sels = (s.selections || []).map((k) => ({ ...k, open: s.selections.length <= 3 })); buildSels();
+  removes = (s.removes || []).map((k) => ({ ...k, open: s.removes.length <= 3 })); buildRemoves();
   $("cut_fill").value = s.cut_fill || "black";
   $("overlay_mode").value = s.overlay_mode || "normal"; $("overlay_where").value = s.overlay_where || "all";
-  $("overlay_grey").checked = !!s.overlay_grey;
+  $("overlay_grey").checked = !!s.overlay_grey; $("overlay_invert").checked = !!s.overlay_invert;
+  $("overlay_on").checked = s.overlay_on !== false;
   setOrientation(s.orientation || {}, false);
   showValues(); if (name) $("name").value = name; full();
 }
@@ -1454,14 +1512,16 @@ function showStlMode() {
   for (const el of document.querySelectorAll(".wrap-only")) el.hidden = wrap === "flat";
   for (const el of document.querySelectorAll(".sphere-only")) el.hidden = wrap !== "sphere";
   $("stl_base_label").textContent = wrap === "flat" ? "Base (mm)" : "Wall (mm)";
+  $("stl_px").disabled = $("stl_full").checked;
 }
+$("stl_full").addEventListener("change", showStlMode);
 $("stl_mode").onchange = () => { showStlMode(); update3d(); };
 $("stl_wrap").onchange = () => { showStlMode(); update3d(); };
 for (const id of ["stl_radius", "stl_arc", "stl_lat", "stl_relief", "stl_invert"]) $(id).addEventListener("change", update3d);
 showStlMode();
 function stlRequest(save) {
   return { map: $("map").value, settings: settings(), name: $("name").value, mode: $("stl_mode").value,
-           width_mm: +$("stl_width").value, px: +$("stl_px").value, relief_mm: +$("stl_relief").value,
+           width_mm: +$("stl_width").value, px: $("stl_full").checked ? "all" : +$("stl_px").value, relief_mm: +$("stl_relief").value,
            base_mm: +$("stl_base").value, min_mm: +$("stl_min").value, max_mm: +$("stl_max").value,
            invert: $("stl_invert").checked, crop: $("stl_crop").checked ? crop : null, save,
            wrap: $("stl_wrap").value, radius_mm: +$("stl_radius").value, arc_deg: +$("stl_arc").value, lat_deg: +$("stl_lat").value };

@@ -56,7 +56,10 @@ extracted from Blender render exactly as before):
   measured from the nearest end: 0 = none, 1 = everything), becomes black or white, fading back
   over ``s``, except inside the
   ``keep`` shapes (``shape``, ``size``, ``depth``, ``pivot``, ``lean``/``angle`` etc. as for a shape
-  focus, solid, their edge soft over ``softness``).
+  focus, solid, their edge soft over ``softness``). ``"remove": [parts]`` also deletes whole things
+  picked on the picture, whatever their depth (keep shapes don't hold on to them): each part grows
+  from its ``point`` up to its depth edges like a selection (``point``, ``step``, ``range``, ``floors``,
+  ``grow``, ``softness``, ``invert``, ``enabled``, below; no palette).
 * ``selections`` (vathopy only): parts of the picture picked by depth, each with its own palette,
   ``[{"point": [fx, fy], "step": s, "range": r, "floors": false, "grow": g, "softness": px,
   "ramp": {...} | null, "cycles": c | null, "invert": false}]``. A selection grows from ``point`` (fractions of the picture,
@@ -69,7 +72,9 @@ extracted from Blender render exactly as before):
   look's own when null) and ``cycles`` (the look's when null) instead; contour lines, focuses and the cut
   go over it as usual. The growth runs on the depth at most 1536 px across, so previews match.
 * ``overlay`` (vathopy only): the original photo over the picture, ``{"opacity": a, "mode":
-  "normal"|"multiply"|"screen"|"soft_light", "where": "all"|"selections"|"outside", "grey": false}``:
+  "normal"|"multiply"|"screen"|"soft_light", "where": "all"|"selections"|"outside", "grey": false,
+  "invert": false, "enabled": true}`` (``invert``: the photo's negative; ``enabled`` false keeps the
+  settings but shows no photo):
   blended in at ``opacity`` (0-1) everywhere, only inside the selections, or only outside them,
   under the cut. The photo isn't part of the look: it's given to the renderer (``vathopy render
   --photo``; the GUI finds it by the depth map's name), and without one the overlay is skipped.
@@ -77,9 +82,15 @@ extracted from Blender render exactly as before):
   "strength": k, "pivot": p}``: every pixel moves by its depth, near ones one way and far ones the
   other, as if the camera moved right (x > 0; left < 0) or up (y > 0; down < 0), by up to ``k`` x the
   picture's width per unit of depth from ``pivot`` (0 = far .. 1 = near; that depth stays put). Gaps
-  that open behind near things are filled from what's behind them. It's applied to the depth map (and
+  that open behind near things are filled from what's behind them. With ``"edges": "zoom"`` (the
+  default) the picture is enlarged just enough to hide the strips the move uncovers along its borders;
+  ``"fill"`` keeps the framing and fills them from the nearest pixels instead. It's applied to the depth map (and
   the overlay photo) first, so everything else follows the new view; focus points, keep shapes and
   selections stay where they were picked, in the map's own coordinates.
+* ``exaggerate`` (vathopy only): more pronounced relief, ``{"amount": a, "size": s}``: each pixel's
+  difference from its smoothed surroundings (over ``s`` x the picture's width, 0.002-0.2) is
+  multiplied by 1 + ``a`` (0-10), so bumps, folds and faces stand out more; the steps between things
+  stay as they are. After ``smooth_depth``; the 3D print (``vathopy relief``) uses it too.
 * ``orientation``: ``{"turns": k, "mirror": m}`` turns the finished picture k quarter turns
   counter-clockwise, then mirrors it left-right if m; the last step, so focus pivots, ``at`` and
   everything else stay in the depth map's own coordinates.
@@ -116,19 +127,25 @@ DEFAULT_LOOK = {
     "selections": [],
     "overlay": None,
     "view_shift": None,
+    "exaggerate": None,
 }
 
-DEFAULT_CUT = {"depth": 0.0, "near": 0.0, "softness": 0.0, "fill": "black", "keep": []}
+DEFAULT_CUT = {"depth": 0.0, "near": 0.0, "softness": 0.0, "fill": "black", "keep": [], "remove": []}
 DEFAULT_KEEP = {"shape": "ellipsoid", "depth": 0.5, "at": None, "pivot": [0.5, 0.5], "size": [0.15, 0.15, 0.15], "length": 0.0,
                 "cone_angle": 30.0, "lean": 0.0, "angle": 0.0, "softness": 0.01, "enabled": True, "locked": False}
 
 DEFAULT_SELECTION = {"point": [0.5, 0.5], "step": 0.003, "range": 0.0, "grow": 1.0, "softness": 1.0, "floors": False, "ramp": None,
                      "cycles": None, "invert": False, "enabled": True, "locked": False}
 
-DEFAULT_OVERLAY = {"opacity": 0.5, "mode": "normal", "where": "all", "grey": False}
+DEFAULT_REMOVE = {"point": [0.5, 0.5], "step": 0.003, "range": 0.0, "grow": 3.0, "softness": 1.0, "floors": False,
+                  "invert": False, "enabled": True, "locked": False}
+
+DEFAULT_OVERLAY = {"opacity": 0.5, "mode": "normal", "where": "all", "grey": False, "invert": False, "enabled": True}
 OVERLAY_MODES = ("normal", "multiply", "screen", "soft_light")
 
-DEFAULT_VIEW_SHIFT = {"x": 0.0, "y": 0.0, "strength": 0.05, "pivot": 0.5}
+DEFAULT_VIEW_SHIFT = {"x": 0.0, "y": 0.0, "strength": 0.05, "pivot": 0.5, "edges": "zoom"}
+
+DEFAULT_EXAGGERATE = {"amount": 1.0, "size": 0.02}
 
 DEFAULT_CONTOURS = {"cycles": 4.0, "strength": 0.85, "width": 2.0}
 
@@ -167,6 +184,19 @@ def _merge(defaults, given, where):
         else:
             out[k] = v
     return out
+
+
+def _check_region(r, where):
+    """A selection's or removed part's fields, checked and made floats/bools in place."""
+    pt = r["point"]
+    if not (isinstance(pt, (list, tuple)) and len(pt) == 2 and all(0.0 <= float(v) <= 1.0 for v in pt)):
+        raise ValueError(f"{where}.point must be [fx, fy], fractions of the picture (0-1)")
+    r["point"] = [float(v) for v in pt]
+    for key in ("step", "range", "grow", "softness"):
+        r[key] = float(r[key])
+    if not (0.0 < r["step"] <= 1.0 and 0.0 <= r["range"] <= 1.0 and 0.0 <= r["grow"] <= 50.0 and 0.0 <= r["softness"] <= 50.0):
+        raise ValueError(f"{where}: step above 0 to 1, range 0-1, grow and softness 0-50 px")
+    r["invert"], r["enabled"], r["floors"] = bool(r["invert"]), bool(r["enabled"]), bool(r["floors"])
 
 
 def normalise(look):
@@ -222,6 +252,9 @@ def normalise(look):
             if (len(k["size"]) != 3 or not all(0.0 < v <= 4.0 for v in k["size"]) or not 0.0 <= k["depth"] <= 1.0
                     or not 0.5 <= k["cone_angle"] <= 89.5 or not 0.0 <= k["softness"] <= 1.0):
                 raise ValueError(f"cut.keep[{i}]: size above 0 to 4, depth 0-1, cone_angle 0.5-89.5, softness 0-1")
+        c["remove"] = [_merge(DEFAULT_REMOVE, r, f"cut.remove[{i}]") for i, r in enumerate(c["remove"] or [])]
+        for i, r in enumerate(c["remove"]):
+            _check_region(r, f"cut.remove[{i}]")
     if not 0.05 <= lk["depth_scale"] <= 20.0:
         raise ValueError("depth_scale must be 0.05 to 20")
     o = lk["orientation"]
@@ -269,33 +302,31 @@ def normalise(look):
             raise ValueError(f"focus[{i}]: length must be 0 (endless) to 8, cone_angle 0.5-89.5 degrees")
     lk["selections"] = [_merge(DEFAULT_SELECTION, sel, f"selections[{i}]") for i, sel in enumerate(lk["selections"] or [])]
     for i, sel in enumerate(lk["selections"]):
-        pt = sel["point"]
-        if not (isinstance(pt, (list, tuple)) and len(pt) == 2 and all(0.0 <= float(v) <= 1.0 for v in pt)):
-            raise ValueError(f"selections[{i}].point must be [fx, fy], fractions of the picture (0-1)")
-        sel["point"] = [float(v) for v in pt]
-        for key in ("step", "range", "grow", "softness"):
-            sel[key] = float(sel[key])
-        if not (0.0 < sel["step"] <= 1.0 and 0.0 <= sel["range"] <= 1.0 and 0.0 <= sel["grow"] <= 50.0
-                and 0.0 <= sel["softness"] <= 50.0):
-            raise ValueError(f"selections[{i}]: step above 0 to 1, range 0-1, grow and softness 0-50 px")
+        _check_region(sel, f"selections[{i}]")
         if sel["cycles"] is not None:
             sel["cycles"] = float(sel["cycles"])
             if not sel["cycles"] > 0:
                 raise ValueError(f"selections[{i}].cycles must be > 0 (or null for the look's)")
         if sel["ramp"] is not None and not isinstance(sel["ramp"], dict):
             raise ValueError(f"selections[{i}].ramp must be a ramp ({{\"preset\": ...}} or stops) or null")
-        sel["invert"], sel["enabled"], sel["floors"] = bool(sel["invert"]), bool(sel["enabled"]), bool(sel["floors"])
     if lk["overlay"] is not None:
         ov = lk["overlay"] = _merge(DEFAULT_OVERLAY, lk["overlay"], "overlay")
-        ov["opacity"], ov["grey"] = float(ov["opacity"]), bool(ov["grey"])
+        ov["opacity"], ov["grey"], ov["invert"], ov["enabled"] = (float(ov["opacity"]), bool(ov["grey"]), bool(ov["invert"]),
+                                                                  bool(ov["enabled"]))
         if not 0.0 <= ov["opacity"] <= 1.0 or ov["mode"] not in OVERLAY_MODES or ov["where"] not in ("all", "selections", "outside"):
             raise ValueError(f"overlay: opacity 0-1, mode one of {OVERLAY_MODES}, where all, selections or outside")
     if lk["view_shift"] is not None:
         vs = lk["view_shift"] = _merge(DEFAULT_VIEW_SHIFT, lk["view_shift"], "view_shift")
-        for key in vs:
+        for key in ("x", "y", "strength", "pivot"):
             vs[key] = float(vs[key])
-        if not (-1.0 <= vs["x"] <= 1.0 and -1.0 <= vs["y"] <= 1.0 and 0.0 <= vs["strength"] <= 0.5 and 0.0 <= vs["pivot"] <= 1.0):
-            raise ValueError("view_shift: x and y -1 to 1, strength 0-0.5, pivot 0-1")
+        if not (-1.0 <= vs["x"] <= 1.0 and -1.0 <= vs["y"] <= 1.0 and 0.0 <= vs["strength"] <= 0.5 and 0.0 <= vs["pivot"] <= 1.0
+                and vs["edges"] in ("zoom", "fill")):
+            raise ValueError("view_shift: x and y -1 to 1, strength 0-0.5, pivot 0-1, edges zoom or fill")
+    if lk["exaggerate"] is not None:
+        ex = lk["exaggerate"] = _merge(DEFAULT_EXAGGERATE, lk["exaggerate"], "exaggerate")
+        ex["amount"], ex["size"] = float(ex["amount"]), float(ex["size"])
+        if not (0.0 <= ex["amount"] <= 10.0 and 0.002 <= ex["size"] <= 0.2):
+            raise ValueError("exaggerate: amount 0-10, size 0.002-0.2 of the width")
     if lk["tilt"] is not None:
         lk["tilt"] = _merge({"normal": [0.0, 1.0, 0.0], "x0": 0.0, "y0": 0.0, "fit": False}, lk["tilt"], "tilt")
     return lk

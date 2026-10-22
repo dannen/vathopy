@@ -882,7 +882,7 @@ def test_heightfield_mesh_is_a_closed_solid_with_the_right_volume(tmp_path):
     lit = mesh.lithophane_heights(np.dstack([depth] * 3), 20, 0.8, 3.0)
     assert lit.min() >= 0 and lit.max() <= 2.2 + 1e-6 and lit[:, 0].mean() > lit[:, -1].mean()
     with pytest.raises(ValueError):
-        mesh.heightfield_mesh(np.zeros((1500, 1500)), 0.1, 1.0)
+        mesh.heightfield_mesh(np.zeros((3000, 2500)), 0.1, 1.0)
 
 
 def two_planes(h=120, w=160):
@@ -947,6 +947,10 @@ def test_photo_overlay_blends_where_asked():
     assert np.allclose(inside[60, 80], 1.0, atol=1e-5) and np.allclose(inside[5, 5], plain[5, 5], atol=1e-5)
     _, info = vathopy.render(d, {**base, "overlay": {"opacity": 1.0}})
     assert info["overlay"] == "no photo"
+    off, info = vathopy.render(d, {**base, "overlay": {"opacity": 1.0, "enabled": False}}, photo)
+    assert info["overlay"] == "off" and np.array_equal(off, plain)                # switched off: kept, not shown
+    neg, _ = vathopy.render(d, {**base, "overlay": {"opacity": 1.0, "invert": True}}, photo)
+    assert np.allclose(neg, 0.0, atol=1e-5)                                     # white's negative
 
 
 def test_view_shift_moves_near_things_against_far_ones():
@@ -956,15 +960,24 @@ def test_view_shift_moves_near_things_against_far_ones():
     vs = normalise({"view_shift": {"x": 0.0}})["view_shift"]
     same, _ = engine.view_shift(d, vs)
     assert same is d
-    vs = normalise({"view_shift": {"x": 1.0, "strength": 0.05}})["view_shift"]
+    vs = normalise({"view_shift": {"x": 1.0, "strength": 0.05, "edges": "fill"}})["view_shift"]
     z, p = engine.view_shift(d, vs, np.dstack([d] * 3))
     k = 0.05 * 160
     near = np.where(z[60] > 0.5)[0]
     assert near.min() == 50 - round(k * 0.3) and near.max() == 109 - round(k * 0.3)   # near: left by 0.3 k
     assert z.min() == pytest.approx(0.2) and np.all(np.isfinite(z))                   # gaps filled from behind
     assert np.array_equal(p[..., 0], z)                                               # the photo moved alike
-    up = engine.view_shift(d, normalise({"view_shift": {"y": 1.0, "strength": 0.05}})["view_shift"])[0]
+    up = engine.view_shift(d, normalise({"view_shift": {"y": 1.0, "strength": 0.05, "edges": "fill"}})["view_shift"])[0]
     assert np.where(up[:, 80] > 0.5)[0].min() < 30                                    # up: near things lower
+    zoom = engine.view_shift(d, normalise({"view_shift": {"x": 1.0, "strength": 0.05}})["view_shift"])[0]
+    assert (zoom[60] > 0.5).sum() > (z[60] > 0.5).sum()                               # zoomed past the uncovered border
+    # a noisy background: the gap a near thing leaves is filled smoothly, not with streaks of single pixels
+    rng = np.random.default_rng(3)
+    noisy = (0.2 + 0.01 * rng.standard_normal(d.shape)).astype(np.float32)
+    noisy[30:90, 50:110] = 0.8
+    g, _ = engine.view_shift(noisy, normalise({"view_shift": {"x": -1.0, "strength": 0.1, "edges": "fill"}})["view_shift"])
+    gap = g[35:85, 46:52]                                                             # where the block was, uncovered
+    assert gap.max() < 0.3 and gap.std() < 0.004                                      # background, evened out
 
 
 def test_wrapped_meshes_are_closed_solids_with_the_right_volume():
@@ -1009,3 +1022,39 @@ def test_gui_finds_photos_and_round_trips_the_new_settings(tmp_path):
     assert photo.shape == (90, 120, 3) and photo.max() == pytest.approx(200 / 255, abs=1e-3)
     grid = gui.mesh_preview(maps, {"map": "IMG_7_depth_00001.exr", "settings": s, "cols": 24})
     assert grid["cols"] == 24 and len(grid["t"]) == 24 * grid["rows"] and grid["aspect"] == pytest.approx(0.75)
+
+
+def test_removed_parts_go_with_the_cut_and_stop_at_it():
+    from vathopy.look import normalise
+    d = np.full((120, 160), 0.2, np.float32)
+    d[20:50, 20:60] = d[70:100, 100:140] = 0.8                                  # two blocks, apart
+    base = {"ramp": {"preset": "WHITE_TO_BLACK"}, "base": "RAMP"}
+    with pytest.raises(ValueError):
+        normalise({"cut": {"remove": [{"point": [2, 0.5]}]}})
+    plain, _ = vathopy.render(d, base)
+    one, _ = vathopy.render(d, {**base, "cut": {"remove": [{"point": [40 / 160, 1 - 35 / 120], "softness": 0}]}})
+    assert one[20:50, 20:60].max() == 0.0 and np.array_equal(one[70:100, 100:140], plain[70:100, 100:140])
+    # with the background cut away, a part grows only over what's still showing
+    cut = {"depth": 0.5, "remove": [{"point": [40 / 160, 1 - 35 / 120], "softness": 0, "step": 0.9}]}
+    out, _ = vathopy.render(d, {**base, "cut": cut})
+    assert out[20:50, 20:60].max() == 0.0 and np.array_equal(out[75:95, 105:135], plain[75:95, 105:135])
+    off, _ = vathopy.render(d, {**base, "cut": {"remove": [{"point": [0.25, 0.7], "enabled": False}]}})
+    assert np.array_equal(off, plain)
+
+
+def test_exaggerate_lifts_details_and_keeps_steps():
+    from vathopy import engine
+    from vathopy.look import normalise
+    h, w = 200, 200
+    yy, xx = np.mgrid[:h, :w]
+    d = np.where(xx < 100, 0.2, 0.8).astype(np.float32)                          # a step
+    d += (0.01 * np.exp(-((xx - 150) ** 2 + (yy - 100) ** 2) / 50.0)).astype(np.float32)   # a small bump on the near side
+    assert engine.exaggerate(d, None) is d
+    ex = normalise({"exaggerate": {"amount": 3, "size": 0.05}})["exaggerate"]
+    e = engine.exaggerate(d, ex)
+    bump, bump_e = d[100, 150] - d[100, 180], e[100, 150] - e[100, 180]
+    assert bump_e > 2.5 * bump                                                   # the bump stands out more
+    assert abs((e[100, 120] - e[100, 50]) - 0.6) < 0.03                          # the step: about as it was
+    assert e.min() == pytest.approx(d.min()) and e.max() == pytest.approx(d.max())   # the same range
+    out, _ = vathopy.render(d, {"cycles": 2, "exaggerate": {"amount": 3, "size": 0.05}})
+    assert out.shape[:2] == d.shape

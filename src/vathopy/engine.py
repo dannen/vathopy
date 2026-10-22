@@ -639,10 +639,10 @@ def focus_shape_weight(f, fo, reach, lo, hi, pw, ph, px, py, mid, s_eff, depth_s
     return wt
 
 
-def cut_weight(f, cut, lo, hi, pw, ph, px, py, mid, s_eff, depth_scale):
+def cut_weight(f, cut, lo, hi, pw, ph, px, py, mid, s_eff, depth_scale, px_scale=1):
     """How much of each pixel the deletion slab removes, 0..1: everything farther than cut["depth"],
     and everything nearer than 1 - cut["near"] (fading back over its softness), less what its keep
-    shapes hold on to."""
+    shapes hold on to; plus the parts picked for removal (cut["remove"], grown like selections)."""
     c, n, soft = float(cut["depth"]), float(cut.get("near", 0.0)), float(cut["softness"])
     span = max(hi - lo, 1e-12)
 
@@ -665,14 +665,20 @@ def cut_weight(f, cut, lo, hi, pw, ph, px, py, mid, s_eff, depth_scale):
         if k["enabled"]:
             fo = {**k, "fill": "solid", "width": 0.0}
             gone *= np.float32(1.0) - focus_shape_weight(f, fo, None, lo, hi, pw, ph, px, py, mid, s_eff, depth_scale)
+    parts = [r for r in cut.get("remove", ()) if r["enabled"]]
+    if parts:
+        t = np.clip((f - np.float32(lo)) / np.float32(hi - lo), 0.0, 1.0).astype(np.float32)
+        stop = gone > 0.5                                # only what's still showing: don't spread through the cut
+        for r in parts:
+            gone = np.maximum(gone, selection_mask(t, r, px_scale, stop))
     return gone
 
 
-def apply_cut(out, f, cut, lo, hi, pw, ph, px, py, mid, s_eff, depth_scale):
-    """The picture with the deletion slab's pixels turned black or white (alpha kept)."""
-    if float(cut["depth"]) <= 0.0 and float(cut.get("near", 0.0)) <= 0.0:
+def apply_cut(out, f, cut, lo, hi, pw, ph, px, py, mid, s_eff, depth_scale, px_scale=1):
+    """The picture with the deletion slab's pixels (and removed parts) turned black or white (alpha kept)."""
+    if float(cut["depth"]) <= 0.0 and float(cut.get("near", 0.0)) <= 0.0 and not any(r["enabled"] for r in cut.get("remove", ())):
         return out
-    g = cut_weight(f, cut, lo, hi, pw, ph, px, py, mid, s_eff, depth_scale)[..., None]
+    g = cut_weight(f, cut, lo, hi, pw, ph, px, py, mid, s_eff, depth_scale, px_scale)[..., None]
     col = np.float32(1.0 if cut["fill"] == "white" else 0.0)
     rgb = out[..., :3] * (np.float32(1.0) - g) + col * g
     return np.concatenate([rgb, out[..., 3:]], axis=-1).astype(np.float32) if out.shape[-1] > 3 else rgb.astype(np.float32)
@@ -717,16 +723,17 @@ def focus_weights(depth, look):
 
 SELECT_WORK_PX = 1536  # selections grow on the depth at most this many px across: previews and full renders match
 FLOOR_SLOPE = 0.4      # "floors": depth rising towards the viewer faster than this per picture height, going down
+SLIVER_PX = 12            # removed parts take in thin slivers of what's left within this many px (at the work size)
 SELECT_HOLE_AREA = 0.002  # unselected pockets smaller than this share of the picture, inside a selection, are filled
 
 
-def selection_mask(t, sel, px_scale=1):
+def selection_mask(t, sel, px_scale=1, stop=None):
     """A selection's weight 0..1 over ``t`` (the depth as 0 far .. 1 near over the window, rows
     bottom-up): a flood fill from its point over 8-connected neighbours that differ by at most
     ``step`` (so it stops at depth edges), within ``range`` of the point's depth when range > 0,
     with ``floors`` stopping at surfaces that come nearer going down the picture (the ground a
     person stands on), small pockets inside filled, widened by ``grow`` px and feathered by
-    ``softness`` px (output px)."""
+    ``softness`` px (output px). It doesn't spread where ``stop`` (a bool mask like ``t``) is set."""
     import cv2
     h, w = t.shape
     k = min(1.0, SELECT_WORK_PX / max(h, w))
@@ -744,6 +751,10 @@ def selection_mask(t, sel, px_scale=1):
         gy = -cv2.Sobel(ts, cv2.CV_32F, 0, 1, ksize=3) / 8.0               # rows bottom-up: going down the picture
         gx = cv2.Sobel(ts, cv2.CV_32F, 1, 0, ksize=3) / 8.0
         block[1:-1, 1:-1][(gy > FLOOR_SLOPE / sh) & (gy > 2.0 * np.abs(gx))] = 1
+    if stop is not None:                                 # the share of each work pixel that's still showing
+        shown = (cv2.resize((~stop).astype(np.float32), (sw, sh), interpolation=cv2.INTER_AREA)
+                 if stop.shape != (sh, sw) else (~stop).astype(np.float32))
+        block[1:-1, 1:-1][shown < 0.5] = 1
     block[row + 1, x + 1] = 0
     step = float(sel["step"])
     cv2.floodFill(small.copy(), block, (x, row), 0, loDiff=step, upDiff=step,
@@ -757,6 +768,12 @@ def selection_mask(t, sel, px_scale=1):
                    and stats[i, cv2.CC_STAT_TOP] + stats[i, cv2.CC_STAT_HEIGHT] < sh]
     if small_holes:
         m[np.isin(lab, small_holes)] = 1
+    if stop is not None:                                 # slivers left between it and what's stopped it (pixels that
+        rest = ((m == 0) & (shown > 0.0)).astype(np.uint8)     # flicker either side of a cut): taken in if thin and close
+        el = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        thin = (rest > 0) & (cv2.morphologyEx(rest, cv2.MORPH_OPEN, el) == 0)
+        near = cv2.dilate(m, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * SLIVER_PX + 1, 2 * SLIVER_PX + 1))) > 0
+        m[thin & near] = 1
     m = cv2.resize(m.astype(np.float32), (w, h), interpolation=cv2.INTER_LINEAR) if (sh, sw) != (h, w) else m.astype(np.float32)
     m = (m >= 0.5).astype(np.float32)
     g = sel["grow"] * px_scale
@@ -782,42 +799,121 @@ def selection_masks(f, lk, lo, hi):
 
 # --- view shift (vathopy only) ---------------------------------------------------------------
 
-def _fill_far(z, valid, extra, axis):
-    """Fill the gaps (not ``valid``) along ``axis`` of ``z`` (and the arrays in ``extra``, alike) from
-    the nearest valid pixel on whichever side is farther (lower z): what a near thing uncovers is
-    background. Gaps with no valid pixel along the line are left. In place; returns the new valid mask."""
+VIEW_EDGE_PX = 8.0     # a pixel whose neighbourhood's depths would move further apart than this (px) is on a depth edge
+VIEW_EDGE_SIZE = 0.01  # that neighbourhood, as a share of the picture's width (the depth model's soft edges are about this wide)
+VIEW_VOTE_SMOOTH = 0.1  # gaps are told apart (background or a hole in a surface) by a vote over this share of the largest move
+VIEW_FILL_TOL = 0.05   # pixels beside a gap more than this (0-1 of the depth) nearer than the farthest there aren't background
+
+
+def _push_pull(a, wt):
+    """``a`` (h, w, c) filled in where the weights ``wt`` (h, w, 0..1) are low, from the weighted
+    average of what's around at ever coarser scales (push-pull): smooth, with no streaks."""
+    import cv2
+
+    def down(x):
+        return cv2.pyrDown(x).reshape((x.shape[0] + 1) // 2, (x.shape[1] + 1) // 2, *x.shape[2:])
+    num, den = [a * wt[..., None]], [wt]
+    while min(den[-1].shape) > 2:
+        num.append(down(num[-1]))
+        den.append(down(den[-1]))
+    est = num[-1] / np.maximum(den[-1], 1e-12)[..., None]
+    for i in range(len(den) - 2, -1, -1):
+        h, w = den[i].shape
+        up = cv2.resize(est, (w, h), interpolation=cv2.INTER_LINEAR).reshape(h, w, -1)
+        k = np.clip(den[i] * 4.0, 0.0, 1.0)[..., None]                            # trust the finer level where it had data
+        est = k * num[i] / np.maximum(den[i], 1e-12)[..., None] + (1.0 - k) * up
+    return est.astype(np.float32)
+
+
+def _gap_sides(z, valid, axis):
+    """For each pixel, the nearest valid pixels before and after it along ``axis``: their depths
+    (inf where there's none) and the length of the run of gaps between them."""
     if axis == 0:
-        z, valid, extra = z.T, valid.T, [e.swapaxes(0, 1) for e in extra]
+        zl, zr, run = _gap_sides(z.T, valid.T, 1)
+        return zl.T, zr.T, run.T
     h, w = z.shape
     cols = np.arange(w)[None, :]
     left = np.maximum.accumulate(np.where(valid, cols, -1), axis=1)
     right = np.minimum.accumulate(np.where(valid, cols, w)[:, ::-1], axis=1)[:, ::-1]
-    lv, rv = left >= 0, right < w
-    li, ri = np.clip(left, 0, w - 1), np.clip(right, 0, w - 1)
-    zl, zr = np.take_along_axis(z, li, axis=1), np.take_along_axis(z, ri, axis=1)
-    src = np.where(lv & (~rv | (zl <= zr)), li, ri)
-    gap = ~valid & (lv | rv)
-    rows = np.broadcast_to(np.arange(h)[:, None], (h, w))
-    z[gap] = z[rows[gap], src[gap]]
-    for e in extra:
-        e[gap] = e[rows[gap], src[gap]]
-    valid |= gap
-    return valid.T if axis == 0 else valid
+    zl = np.where(left >= 0, np.take_along_axis(z, np.clip(left, 0, w - 1), axis=1), np.inf)
+    zr = np.where(right < w, np.take_along_axis(z, np.clip(right, 0, w - 1), axis=1), np.inf)
+    return zl, zr, (right - left - 1).astype(np.float32)
+
+
+def _fill_far(z, valid, extra, reach, axis):
+    """Fill the gaps (not ``valid``) in ``z`` (and the arrays in ``extra``, alike). A gap whose sides
+    (along the move, ``axis``) differ in depth by about as much as it is wide is where a near thing
+    moved off the background: it's filled only from the farthest pixels round it (anything nearer
+    than the farthest within about the widest such gap is left out), so it gets the background, smoothly. Other gaps (holes in a
+    surface) are filled from everything round them. Returns the filled copies."""
+    import cv2
+    h, w = z.shape
+    if valid.all() or not valid.any():
+        return z.copy(), [e.copy() for e in extra]
+    stack = np.dstack([z[..., None]] + [e.reshape(h, w, -1) for e in extra]).astype(np.float32)
+    hole = ~valid
+    zl, zr, run = _gap_sides(z, valid, axis)
+    jump = np.where(np.isfinite(zl) & np.isfinite(zr), np.abs(zl - zr) * reach, np.inf)
+    vote = (hole & (jump > 0.5 * run)).astype(np.float32)                       # uncovered background, row by row:
+    sigma = max(1.0, VIEW_VOTE_SMOOTH * reach)                                   # a neighbourhood vote, so it's
+    m = hole.astype(np.float32)                                                  # the same from row to row, blending
+    share = cv2.GaussianBlur(vote, (0, 0), sigma) / np.maximum(cv2.GaussianBlur(m, (0, 0), sigma), 1e-6)   # the two fills
+    b = np.clip((share - 0.3) / 0.4, 0.0, 1.0)[..., None]                       # 0: a hole in a surface, 1: background
+    out = stack.copy()
+    surface = hole & (b[..., 0] < 1.0)
+    behind = hole & (b[..., 0] > 0.0)
+    if surface.any():
+        out[surface] = _push_pull(stack, valid.astype(np.float32))[surface]
+    if behind.any():
+        q = 4                                                                    # at a quarter of the size: quick
+        zq = cv2.resize(np.where(valid, z, np.float32(1e9)).astype(np.float32), ((w + q - 1) // q, (h + q - 1) // q),
+                        interpolation=cv2.INTER_NEAREST)
+        r = max(3, int(2 * reach / q) | 1)                                       # a gap is at most ``reach`` wide
+        far = cv2.erode(zq, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (r, r)))
+        far = cv2.resize(cv2.GaussianBlur(far, (0, 0), r / 4), (w, h), interpolation=cv2.INTER_LINEAR)
+        src = valid & (z <= far + np.float32(VIEW_FILL_TOL))                  # the farthest things about
+        out[behind] = (b * _push_pull(stack, src.astype(np.float32)) + (1.0 - b) * out)[behind]
+    return np.ascontiguousarray(out[..., 0]), [np.ascontiguousarray(out[..., 1:]).reshape(e.shape) for e in extra]
+
+
+def _zoom_box(tx, ty, w, h):
+    """The biggest box with the picture's proportions, centred as far as it can be, that leaves out
+    the strips along the borders the moved view uncovers (no data comes from outside the frame):
+    ``tx``/``ty`` are where each pixel lands."""
+    tx, ty = np.broadcast_to(tx, (h, w)), np.broadcast_to(ty, (h, w))
+    left = int(max(0, np.max(np.min(tx, axis=1))))                              # per row: the leftmost pixel's place
+    right = int(max(0, w - 1 - np.min(np.max(tx, axis=1))))
+    top = int(max(0, np.max(np.min(ty, axis=0))))
+    bottom = int(max(0, h - 1 - np.min(np.max(ty, axis=0))))
+    s = max(w / max(w - left - right, 1), h / max(h - top - bottom, 1))
+    bw, bh = w / s, h / s
+    x0 = min(max(left, (w - bw) / 2), w - right - bw)
+    y0 = min(max(top, (h - bh) / 2), h - bottom - bh)
+    return x0, y0, bw, bh
 
 
 def view_shift(depth, vs, photo=None):
     """The depth map (rows bottom-up, near = bright) as seen from a moved camera (a look's
     ``view_shift``), and the photo (sRGB, rows bottom-up, the same size) moved with it. Each pixel is
-    splatted to its new place, nearest on top; gaps are filled from the farther side."""
+    splatted to its new place, nearest on top. The soft in-between pixels along depth edges are left
+    out (they would smear across the gap), gaps are filled smoothly from the background beside them,
+    and with ``edges`` "zoom" the picture is enlarged just enough that the strips the move uncovers
+    along the borders fall outside it ("fill" fills them like the gaps)."""
     if vs is None or (vs["x"] == 0.0 and vs["y"] == 0.0) or vs["strength"] == 0.0:
         return depth, photo
+    import cv2
     d = np.ascontiguousarray(depth[::-1], dtype=np.float32)                      # top-down from here
     h, w = d.shape
     k = float(vs["strength"]) * w
+    reach = k * float(np.hypot(vs["x"], vs["y"]))                                # px moved per unit of depth
     off = d - np.float32(vs["pivot"])
     tx = np.rint(np.arange(w, dtype=np.float32)[None, :] - np.float32(vs["x"] * k) * off).astype(np.int64)
     ty = np.rint(np.arange(h, dtype=np.float32)[:, None] + np.float32(vs["y"] * k) * off).astype(np.int64)
-    inside = ((tx >= 0) & (tx < w) & (ty >= 0) & (ty < h)).ravel()
+    n = max(5, int(VIEW_EDGE_SIZE * w) | 1)
+    el = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (n, n))
+    hi_, lo_ = cv2.dilate(d, el), cv2.erode(d, el)
+    edge = ((hi_ - lo_) * reach > VIEW_EDGE_PX) & ((hi_ - d) * reach > VIEW_EDGE_PX / 2)   # on an edge, not its near side
+    inside = ((tx >= 0) & (tx < w) & (ty >= 0) & (ty < h) & ~edge).ravel()
     src = np.flatnonzero(inside)
     tgt = (ty * w + tx).ravel()[inside]
     dv = d.ravel()[src]
@@ -834,9 +930,18 @@ def view_shift(depth, vs, photo=None):
         q = np.zeros_like(p)
         q[tgt[win]] = p[src[win]]
         extra = [q.reshape(h, w, -1)]
-    first = 1 if abs(vs["x"]) >= abs(vs["y"]) else 0                             # along the shift first
-    valid = _fill_far(z, valid, extra, first)
-    _fill_far(z, valid, extra, 1 - first)
+    z, extra = _fill_far(z, valid, extra, reach, 1 if abs(vs["x"]) >= abs(vs["y"]) else 0)
+    if vs.get("edges", "zoom") == "zoom":
+        x0, y0, bw, bh = _zoom_box(tx, ty, w, h)
+        if bw < w - 0.5 or bh < h - 0.5:
+            sx, sy = bw / w, bh / h                                              # output px -> source px
+            M = np.float32([[sx, 0, x0 + 0.5 * sx - 0.5], [0, sy, y0 + 0.5 * sy - 0.5]])
+
+            def warp(a):
+                return cv2.warpAffine(np.ascontiguousarray(a), M, (w, h), flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP,
+                                      borderMode=cv2.BORDER_REPLICATE)
+            z = warp(z)
+            extra = [warp(e).reshape(h, w, -1) for e in extra]
     return np.ascontiguousarray(z[::-1]), (np.ascontiguousarray(extra[0][::-1]) if extra else None)
 
 
@@ -848,7 +953,7 @@ def apply_overlay(out, photo, ov, sel_mask=None):
     if ov["where"] != "all":
         m = sel_mask if sel_mask is not None else np.zeros(out.shape[:2], np.float32)
         a = a * (m if ov["where"] == "selections" else np.float32(1.0) - m)[..., None]
-    p = photo
+    p = np.float32(1.0) - photo if ov["invert"] else photo
     if ov["grey"]:
         p = np.repeat((p @ np.array([0.2126, 0.7152, 0.0722], np.float32))[..., None], 3, axis=-1)
     o = srgb_oetf(out[..., :3]).astype(np.float32)
@@ -912,6 +1017,39 @@ def smooth_depth(depth, radius):
                                SMOOTH_RANGE * rng, float(radius)).astype(np.float32)
 
 
+EXAGGERATE_EDGE = 0.05  # exaggerate: depth differences from the surroundings bigger than this (0-1 of the range) are edges, left alone
+EXAGGERATE_WORK_PX = 1024  # exaggerate: the surroundings are worked out on the depth at most this many px across
+
+
+def exaggerate(depth, ex):
+    """The depth with its relief made more pronounced (a look's ``exaggerate``): each pixel's
+    difference from its smoothed surroundings (over ``size`` x the width, edge-preserving) is multiplied
+    by 1 + ``amount``, so bumps, folds and faces stand out more while the steps between things (bigger
+    than EXAGGERATE_EDGE of the depth range) stay as they are, without halos. It's scaled back into the
+    depth's own range."""
+    if ex is None or ex["amount"] <= 0:
+        return depth
+    import cv2
+    d = np.ascontiguousarray(depth, dtype=np.float32)
+    h, w = d.shape
+    lo, hi = float(d.min()), float(d.max())
+    rng = (hi - lo) or 1.0
+    k = min(1.0, EXAGGERATE_WORK_PX / max(h, w))
+    small = cv2.resize(d, (max(2, round(w * k)), max(2, round(h * k))), interpolation=cv2.INTER_AREA) if k < 1.0 else d
+    sigma = max(1.0, float(ex["size"]) * small.shape[1])
+    base = cv2.bilateralFilter(small, -1, EXAGGERATE_EDGE * rng, sigma) if sigma < 12 else small
+    if sigma >= 12:                                      # bilateral filters get slow when wide: repeat a narrower one
+        for _ in range(int(np.ceil((sigma / 8.0) ** 2))):
+            base = cv2.bilateralFilter(base, -1, EXAGGERATE_EDGE * rng, 8.0)
+    base = cv2.resize(base, (w, h), interpolation=cv2.INTER_LINEAR) if k < 1.0 else base
+    detail = d - base
+    edge = np.float32(EXAGGERATE_EDGE * rng)
+    detail *= np.exp(-(detail / edge) ** 2)               # big differences are edges (or upsampling misses): no boost
+    out = d + np.float32(ex["amount"]) * detail
+    olo, ohi = float(out.min()), float(out.max())
+    return (lo + (out - olo) * np.float32(rng / ((ohi - olo) or 1.0))).astype(np.float32)   # back into the old range
+
+
 def render(depth, look, photo=None):
     """Render a look onto a depth map.
 
@@ -933,7 +1071,7 @@ def render(depth, look, photo=None):
     if not np.all(np.isfinite(depth)):
         raise ValueError("depth contains NaN or infinite values (use `vathopy prep` to clean it)")
     photo_bu = None
-    if lk["overlay"] is not None and photo is not None:                 # the photo at the map's size, bottom-up
+    if lk["overlay"] is not None and lk["overlay"]["enabled"] and photo is not None:                 # the photo at the map's size, bottom-up
         import cv2
         p = np.asarray(photo, np.float32)[..., :3]
         if p.shape[:2] != depth.shape:
@@ -942,6 +1080,7 @@ def render(depth, look, photo=None):
     depth, photo_bu = view_shift(depth, lk["view_shift"], photo_bu)
     if lk["smooth_depth"] > 0:
         depth = smooth_depth(depth, lk["smooth_depth"])
+    depth = exaggerate(depth, lk["exaggerate"])
     if any(fo["at"] is not None for fo in lk["focus"]):
         h_, w_ = depth.shape
         lk = dict(lk, focus=[dict(fo, depth=focus_depth_at(depth, lk, *fo["at"]), at=None,
@@ -1069,12 +1208,12 @@ def _render(depth, lk):
     prep = sum_prepare(lk, depth.shape, px, py, pw, ph, mid, s_eff)
     out = sum_compute(prep, f, base, extra)
     ov = lk["overlay"]
-    if ov is not None and lk.get("_photo") is not None and ov["opacity"] > 0:
+    if ov is not None and lk.get("_photo") is not None and ov["opacity"] > 0 and ov["enabled"]:
         union = np.maximum.reduce([m for _, m in sel_masks]) if sel_masks else None
         out = apply_overlay(out, lk["_photo"], ov, union)
     if lk["cut"] is not None:
-        out = apply_cut(out, f, lk["cut"], lo, hi, pw, ph, px, py, mid, s_eff, lk["depth_scale"])
+        out = apply_cut(out, f, lk["cut"], lo, hi, pw, ph, px, py, mid, s_eff, lk["depth_scale"], lk.get("_px_scale", 1))
     info = {"size": [w_, h_], "window": [lo, hi], "remapped_range": [float(f.min()), float(f.max())],
-            "overlay": "on" if ov is not None and lk.get("_photo") is not None else "no photo" if ov is not None else "off",
+            "overlay": ("off" if ov is None or not ov["enabled"] else "on" if lk.get("_photo") is not None else "no photo"),
             "terms": len(prep["recs"]), "dead_masks": prep["dead"], "seconds": time.perf_counter() - t0}
     return out, info

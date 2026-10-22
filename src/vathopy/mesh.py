@@ -11,7 +11,7 @@ normal faces out. Units are millimetres. numpy only.
 
 import numpy as np
 
-MAX_TRIANGLES = 4_000_000
+MAX_TRIANGLES = 12_000_000   # a 2496 x 1872 map at every pixel is about 9.3 million (465 MB of STL)
 
 
 def triangle_count(rows, cols):

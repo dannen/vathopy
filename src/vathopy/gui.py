@@ -49,7 +49,7 @@ from . import io as VIO
 from . import look as LOOK
 from . import meta as META
 from . import palettes as PAL
-from .engine import focus_depth_at, focus_weights, orient, render, smooth_depth, view_shift
+from .engine import exaggerate, focus_depth_at, focus_weights, orient, render, smooth_depth, view_shift
 from .probe import probe
 from .ramp import PRESETS, Ramp
 
@@ -134,6 +134,21 @@ def _selections_from_page(sels):
             for sel in (sels or [])[:MAX_FOCUS]]
 
 
+def _removes_from_page(parts):
+    return [{"point": [min(max(float(r.get("x", 0.5)), 0.0), 1.0), min(max(float(r.get("y", 0.5)), 0.0), 1.0)],
+             "step": float(r.get("step", 0.003)), "range": float(r.get("range", 0.0) or 0.0),
+             "floors": bool(r.get("floors")), "grow": float(r.get("grow", 3.0)), "softness": float(r.get("softness", 1.0)),
+             "invert": bool(r.get("invert")), "enabled": bool(r.get("enabled", True)), "locked": bool(r.get("locked", False))}
+            for r in (parts or [])[:MAX_FOCUS]]
+
+
+def _removes_to_page(cut):
+    return [{"x": r["point"][0], "y": r["point"][1], "step": r.get("step", 0.003), "range": r.get("range", 0.0),
+             "floors": bool(r.get("floors")), "grow": r.get("grow", 1.0), "softness": r.get("softness", 1.0),
+             "invert": bool(r.get("invert")), "enabled": bool(r.get("enabled", True)), "locked": bool(r.get("locked", False))}
+            for r in cut.get("remove") or []]
+
+
 def _selections_to_page(lk):
     out = []
     for sel in lk.get("selections") or []:
@@ -166,9 +181,10 @@ def look_from_settings(s, preview=False):
              **{key: v for key, v in _shape_from_page(k, "ellipsoid").items() if key != "fill"}}   # always solid
             for k in (s.get("keep") or [])[:MAX_FOCUS]]
     cut, near = float(s.get("cut_depth", 0) or 0), float(s.get("cut_near", 0) or 0)
-    if cut > 0 or near > 0 or keep:
+    removes = _removes_from_page(s.get("removes"))
+    if cut > 0 or near > 0 or keep or removes:
         lk["cut"] = {"depth": cut, "near": near, "softness": float(s.get("cut_softness", 0) or 0),
-                     "fill": s.get("cut_fill") or "black", "keep": keep}
+                     "fill": s.get("cut_fill") or "black", "keep": keep, "remove": removes}
     if s.get("selections"):
         lk["selections"] = _selections_from_page(s["selections"])
     vx, vy = float(s.get("view_x", 0) or 0), float(s.get("view_y", 0) or 0)
@@ -176,7 +192,10 @@ def look_from_settings(s, preview=False):
         lk["view_shift"] = {"x": vx, "y": vy, "strength": float(s.get("view_strength", 0.05) or 0.05)}
     if float(s.get("overlay_opacity", 0) or 0) > 0:
         lk["overlay"] = {"opacity": float(s["overlay_opacity"]), "mode": s.get("overlay_mode") or "normal",
-                         "where": s.get("overlay_where") or "all", "grey": bool(s.get("overlay_grey"))}
+                         "where": s.get("overlay_where") or "all", "grey": bool(s.get("overlay_grey")),
+                         "invert": bool(s.get("overlay_invert")), "enabled": bool(s.get("overlay_on", True))}
+    if float(s.get("exaggerate", 0) or 0) > 0:
+        lk["exaggerate"] = {"amount": float(s["exaggerate"]), "size": float(s.get("exaggerate_size", 0.02) or 0.02)}
     o = s.get("orientation") or {}
     lk["orientation"] = {"turns": int(o.get("turns", 0) or 0), "mirror": bool(o.get("mirror"))}
     style = s.get("focus_style", "off")
@@ -229,9 +248,12 @@ def settings_from_look(lk):
 
 
 def _overlay_settings(lk):
-    ov, vs = lk.get("overlay") or {}, lk.get("view_shift") or {}
-    return {"view_x": float(vs.get("x", 0.0)), "view_y": float(vs.get("y", 0.0)), "view_strength": float(vs.get("strength", 0.05)),"overlay_opacity": float(ov.get("opacity", 0.0)), "overlay_mode": ov.get("mode", "normal"),
-            "overlay_where": ov.get("where", "all"), "overlay_grey": bool(ov.get("grey"))}
+    ov, vs, ex = lk.get("overlay") or {}, lk.get("view_shift") or {}, lk.get("exaggerate") or {}
+    return {"view_x": float(vs.get("x", 0.0)), "view_y": float(vs.get("y", 0.0)), "view_strength": float(vs.get("strength", 0.05)),
+            "overlay_opacity": float(ov.get("opacity", 0.0)), "overlay_mode": ov.get("mode", "normal"),
+            "overlay_where": ov.get("where", "all"), "overlay_grey": bool(ov.get("grey")),
+            "overlay_invert": bool(ov.get("invert")), "overlay_on": bool(ov.get("enabled", True)),
+            "exaggerate": float(ex.get("amount", 0.0)), "exaggerate_size": float(ex.get("size", 0.02))}
 
 
 def _slider_lean_angle(lean, angle):
@@ -264,7 +286,7 @@ def _cut_settings(lk):
     c = lk.get("cut") or {}
     return {"cut_depth": float(c.get("depth", 0.0)), "cut_near": float(c.get("near", 0.0)),
             "cut_softness": float(c.get("softness", 0.0)),
-            "cut_fill": c.get("fill", "black"),
+            "cut_fill": c.get("fill", "black"), "removes": _removes_to_page(c),
             "keep": [{"depth": float(k["depth"]), "x": k.get("pivot", [0.5, 0.5])[0], "y": k.get("pivot", [0.5, 0.5])[1],
                       "lean": float(k.get("lean", 0.0)), "angle": float(k.get("angle", 0.0)),
                       "softness": float(k.get("softness", 0.01)), "enabled": bool(k.get("enabled", True)),
@@ -368,6 +390,7 @@ def mesh_preview(maps, req):
     from .engine import MIN_SCALE, _window, plane_dims, remapped
     s = req.get("settings", {})
     d = maps.depth(req["map"], float(s.get("smooth", 0) or 0))
+    d = exaggerate(d, look_from_settings(s, preview=True)["exaggerate"])
     lk = look_from_settings(s, preview=True)
     f = remapped(d, lk)
     lo, hi = _window(f, lk)
@@ -556,6 +579,7 @@ def make_handler(maps, favourites, preview_size, auth=None, palettes_dir=None):
             o = s.get("orientation") or {}
             o = {"turns": int(o.get("turns", 0) or 0), "mirror": bool(o.get("mirror"))}
             depth = maps.depth(req["map"], float(s.get("smooth", 0) or 0))          # rows bottom-up
+            depth = exaggerate(depth, look_from_settings(s)["exaggerate"])
             if req.get("mode") == "lithophane":
                 lk = look_from_settings({**s, "orientation": {}})
                 out, _ = render(depth, lk, maps.photo(req["map"], lk))
@@ -573,7 +597,7 @@ def make_handler(maps, favourites, preview_size, auth=None, palettes_dir=None):
                 raise ValueError("wrap must be flat, cylinder or sphere")
             radius, arc = float(req.get("radius_mm", 40)), float(req.get("arc_deg", 360))
             width_mm = float(req.get("width_mm", 100)) if wrap == "flat" else radius * np.radians(arc)   # round the outside
-            cols = min(int(req.get("px") or round(width_mm / 0.2) + 1), td.shape[1])
+            cols = td.shape[1] if req.get("px") == "all" else min(int(req.get("px") or round(width_mm / 0.2) + 1), td.shape[1])
             if req.get("mode") == "lithophane":
                 lo, hi = float(req.get("min_mm", 0.8)), float(req.get("max_mm", 3.0))
                 top, base = mesh.lithophane_heights(td, cols, lo, hi), lo

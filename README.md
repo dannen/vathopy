@@ -11,7 +11,8 @@ same depth map and settings, it produces the same picture as the add-on's artist
 
 On top of that it adds things the add-on doesn't have, all off by default: cycles and contour lines,
 smoothing, anti-aliasing and equalizing, a creative focus picked by depth (as tilted planes or 3D shapes),
-a deletion slab, orientation, selections with their own palette, a photo overlay, a viewpoint shift, 65
+a deletion slab and deleted parts, orientation, selections with their own palette, a photo overlay, a
+viewpoint shift, exaggerated depth, 65
 palettes plus your own, a web GUI with a 3D view, and 3D-printable reliefs and lithophanes (STL), flat or
 wrapped round a cylinder or a sphere.
 
@@ -170,6 +171,11 @@ vathopy render depth.exr --cut 0.3 --cut-near 0.3 -o out/                    # k
 vathopy render depth.exr --cut 1 --keep @950,480:size=0.25 -o out/           # only what's in a sphere around one person
 ```
 
+The cut's `remove` list deletes whole things picked on the picture, whatever their depth: each part grows from its
+`point` up to its depth edges like a selection (below), but only over what the slab has left, so a click on a
+patch the slab didn't quite reach takes just that patch. Thin slivers left along its edge go with it. Keep
+shapes don't hold on to removed parts. In a look: `"cut": {"depth": 0.21, "remove": [{"point": [0.5, 0.03]}]}`.
+
 ### Selections
 
 A selection picks out a person or thing by its depth, and gives it its own palette and cycles. It grows from a
@@ -193,7 +199,8 @@ across, so a preview and the full render select the same pixels.
 
 `overlay` blends the photo the depth map was made from over the picture, under the cut: `opacity` 0–1, `mode`
 `normal`, `multiply`, `screen` or `soft_light`, `where` `all`, `selections` (only inside them) or `outside`, and
-`grey` for black and white. The photo isn't stored in the look; give it to `render`:
+`grey` for black and white, `invert` for its negative, and `enabled` (false keeps the settings but hides it).
+The photo isn't stored in the look; give it to `render`:
 
 ```bash
 vathopy render depth.exr -l look.json --photo photo.jpg --overlay 0.4 -o out/
@@ -204,11 +211,23 @@ It's resized to the depth map and turned upright from its EXIF orientation. The 
 ### Viewpoint shift
 
 `view_shift` looks at the scene from a little to one side: `{"x": -1..1, "y": -1..1, "strength": 0.05, "pivot":
-0.5}`. Each pixel moves by its depth, near ones one way and far ones the other, as if the camera moved right
-(x > 0) or up (y > 0); `strength` is how far, as a share of the picture's width, and the depth at `pivot` (0 =
-far … 1 = near) stays put. Gaps that open behind near things are filled from what's behind them, which smears a
-little where a large area opens up. It acts on the depth map (and the overlay photo) first, so fringes, focuses
-and the cut all follow the new view; focus points, keep shapes and selections stay where they were picked.
+0.5, "edges": "zoom"}`. Each pixel moves by its depth, near ones one way and far ones the other, as if the camera
+moved right (x > 0) or up (y > 0); `strength` is how far, as a share of the picture's width, and the depth at
+`pivot` (0 = far … 1 = near) stays put. The soft in-between pixels along depth edges are left out (they'd smear
+across), and the gaps that open behind near things are filled smoothly from the background beside them. With
+`edges` `zoom` the picture is enlarged just enough that the strips the move uncovers along its borders (where
+there's no data) fall outside it; `fill` keeps the framing and fills them too. It acts on the depth map (and
+the overlay photo) first, so fringes, focuses and the cut all follow the new view; focus points, keep shapes and
+selections stay where they were picked.
+
+### Exaggerated depth
+
+`exaggerate` makes the relief more pronounced: `{"amount": 0-10, "size": 0.002-0.2}`. Each pixel's difference
+from its smoothed surroundings (over `size` × the picture's width) is multiplied by 1 + `amount`, so faces,
+folds and bumps stand out more, while the steps between things (more than 5% of the depth range) stay as they
+are, with no halos. The result is scaled back into the depth's own range. It also amplifies the depth model's
+own fine noise; a little smoothing (`smooth_depth`, applied first) keeps that down. `vathopy relief` uses it
+too (the look's, or `--exaggerate A --detail-size S`).
 
 ### 3D printing
 
@@ -223,7 +242,10 @@ vathopy relief depth.exr -o lithophane.stl --lithophane -l saved.png --min-mm 0.
 A **relief** raises the near parts `--relief-mm` above the far ones. A **lithophane** prints a rendered look
 (from `-l`: a look, or a PNG the GUI saved) as thickness, dark parts thick and light parts thin, so it shows
 the picture when lit from behind. Points are 0.2 mm apart by default (`--px` sets how many across, never more
-than the map has); a 100 mm print is about 450,000 triangles, 22 MB. The look's orientation is used.
+than the map has; `--px 0` uses every pixel); a 100 mm print is about 450,000 triangles, 22 MB, and every pixel
+of a 2496 px map about 9.4 million, 470 MB (the most is 12 million). More points only help if the printer can
+show them (resin, or a bigger print); `--exaggerate` brings out detail that's there but shallow. The look's
+orientation is used.
 
 `--wrap cylinder` or `--wrap sphere` wraps it round instead: the picture's width goes `--arc-deg` round the axis
 (360, the default, joins its two ends), its height keeps the picture's proportions (on a sphere `--lat-deg` sets
@@ -484,13 +506,20 @@ install -e .`) means no reinstall is needed unless `requirements.txt` changed.
 - **Cut:** **Delete from far** drags the deletion slab from the farthest depth (0, off) to the nearest (1,
   everything); **Delete from near** does the same from the nearest depth, so both together leave a band. Edge
   softness fades them, and deleted parts become black or white. **Keep a shape**, then click
-  the picture: a sphere there (change it to a box, rod or cone, size and turn it) survives the cut. Keep shapes
-  are cleared when another depth map is chosen, like focuses.
-- **Points** (under the picture, or the P key): a dot on the picture for each focus (F1…), keep shape (K1…)
-  and target (T1…). Drag one to move it: a focus or keep shape takes the depth under its new place (hold Shift
-  as you let go to keep its depth), a target grows again from there. A click opens its panel; locked ones don't
+  the picture: a sphere there (change it to a box, rod or cone, size and turn it) survives the cut. **Delete a
+  part**, then click the picture: the thing there, up to its depth edges, is deleted too (black or white, like
+  the cut), shown by a red Ⓓ. It spreads only over what's still showing, so with Delete from far at 0.210 a
+  click on a leftover patch at the top takes just that patch. Each has Edge, Depth range, Grow and Soft edge
+  sliders, Stop at floors and Everything else. Keep shapes and deleted parts are cleared when another depth map
+  is chosen, like focuses.
+- **Points** (under the picture, or the P key): a dot on the picture for each focus (F1…), keep shape (K1…),
+  target (T1…) and deleted part (D). Drag one to move it: a focus or keep shape takes the depth under its new
+  place (hold Shift as you let go to keep its depth), a target or deleted part grows again from there. A click opens its panel; locked ones don't
   move.
 - **Viewpoint:** Left / right and Down / up shift the view (see Viewpoint shift above), Amount sets how far.
+  The picture is enlarged a little so the uncovered strips along its borders don't show.
+- **Exaggerate depth** (under Shape): makes bumps, folds and faces stand out (see Exaggerated depth); Detail
+  size says how big the things it brings out are. The 3D view and 3D print use it too.
 - **Selections:** **Pick a target**, then click a person or thing: it's selected up to its depth edges and gets a
   palette of its own (a colour, to start with). Each target has a palette menu ("Same palette as the picture"
   keeps the picture's), Reverse palette, **Stop at floors**, Everything else, and sliders for Edge (the step
@@ -499,7 +528,8 @@ install -e .`) means no reinstall is needed unless `requirements.txt` changed.
 - **Photo:** finds the photo each depth map was made from in `--photos` by name (`<photo>_depth_00001.exr` comes
   from `<photo>.jpg`, `.png` or another picture type; batch uploads in `batch-*` subfolders count; the newest
   wins) and says which, or where it looked. **Photo over the picture** blends it in, with a blend mode, where it
-  shows (everywhere, only on the targets, or outside them) and Black and white.
+  shows (everywhere, only on the targets, or outside them), Black and white and Invert (its negative). **On**
+  (or the O key) shows or hides it without losing its settings.
 - **3D view:** a small low-poly wireframe of the depth map's surface with the keep shapes, shape focuses, focus
   planes and the cut's slabs in it, to see where they sit in space. Drag to turn it, scroll to zoom, right-drag
   to move it, double-click (or Start view) to go back. With 3D print set to a cylinder or sphere it shows the
@@ -507,7 +537,7 @@ install -e .`) means no reinstall is needed unless `requirements.txt` changed.
   elsewhere.
 - **3D print:** Flat, or wrapped round a cylinder or a sphere (radius, how far round, and on a sphere how far
   from top to bottom; the base becomes the wall inside), Relief or Lithophane, width, points across, relief height and base (or thinnest/thickest),
-  Far raised, and Use the crop. **Save local** writes the STL into `--favourites` on the machine running
+  Far raised, Use the crop, and **Every pixel** (a point for every pixel of the map: the most detail, big files). **Save local** writes the STL into `--favourites` on the machine running
   vathopy (`<map>_<look name or "vathopy">_relief.stl` or `…_lithophane.stl`, never overwriting: `-001`, …);
   **Download STL** sends the same file to the browser and writes nothing on the server. Both build it from the
   map (cropped and turned as the picture is shown) and say its size and triangle count. PrusaSlicer reads the
@@ -592,10 +622,11 @@ Every key is optional; unknown keys are rejected so that typos don't pass silent
 | `groups` | `{}` | Merge groups: `{"Group 1": {"strength": 1.0, "blend": 0.0}}` |
 | `solo` | `""` | Show only one area (its name) or one band (`"BAND:<id>"`) |
 | `depth_scale` | `1.0` | vathopy: how deep the scene is relative to its width, for shape focuses and keep shapes |
-| `cut` | `null` | vathopy: the deletion slabs, `{"depth": 0-1 (from far), "near": 0-1 (from near), "softness", "fill": "black"/"white", "keep": [shapes]}` |
+| `cut` | `null` | vathopy: the deletion slabs, `{"depth": 0-1 (from far), "near": 0-1 (from near), "softness", "fill": "black"/"white", "keep": [shapes], "remove": [parts]}` (parts: `{"point", "step", "range", "floors", "grow", "softness", "invert"}`) |
 | `selections` | `[]` | vathopy: `[{"point": [fx, fy], "step", "range", "floors", "grow", "softness", "ramp": {…} or null, "cycles": n or null, "invert"}]` (see Selections) |
-| `overlay` | `null` | vathopy: the photo over the picture, `{"opacity", "mode", "where", "grey"}` (see Photo overlay) |
-| `view_shift` | `null` | vathopy: `{"x", "y", "strength", "pivot"}` (see Viewpoint shift) |
+| `overlay` | `null` | vathopy: the photo over the picture, `{"opacity", "mode", "where", "grey", "invert", "enabled"}` (see Photo overlay) |
+| `view_shift` | `null` | vathopy: `{"x", "y", "strength", "pivot", "edges": "zoom"/"fill"}` (see Viewpoint shift) |
+| `exaggerate` | `null` | vathopy: `{"amount": 0-10, "size": 0.002-0.2}` (see Exaggerated depth) |
 
 Mask targets: `ALL_BANDS`, `ALL_LIGHTS`, `BAND:<id>`, `LIGHT:<area id>`, `GROUP:<name>`.
 See `examples/demo_look.json` and `examples/template_look.json`. The latter was extracted from the

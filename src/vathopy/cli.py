@@ -252,7 +252,7 @@ def cmd_relief(a):
     a lithophane (dark = thick)."""
     import numpy as np
     from . import mesh
-    from .engine import orient, render, smooth_depth
+    from .engine import exaggerate, orient, render, smooth_depth
     lk = LOOK.load(a.look) if a.look else LOOK.normalise({})
     if a.preset:
         lk["ramp"] = {"preset": a.preset}
@@ -261,6 +261,8 @@ def cmd_relief(a):
         w_src = depth.shape[1] if not lk["orientation"]["turns"] % 2 else depth.shape[0]
         width_mm = a.width_mm if a.wrap == "flat" else a.radius_mm * np.radians(a.arc_deg)   # wrapped: round the outside
         cols = min(a.px or round(width_mm / 0.2) + 1, w_src)            # 0.2 mm a point; never more than the map has
+        if a.px == 0:
+            cols = w_src                                                # every pixel
         if a.lithophane:
             out, _ = render(depth, lk)                                  # the picture, turned as the look says
             srgb = np.clip(VIO.srgb_oetf(out[::-1, :, :3]), 0.0, 1.0)
@@ -269,6 +271,9 @@ def cmd_relief(a):
             sm = lk["smooth_depth"] if a.smooth_depth is None else a.smooth_depth
             if sm > 0:
                 depth = smooth_depth(depth, sm)
+            ex = lk["exaggerate"] if a.exaggerate is None else (
+                LOOK.normalise({"exaggerate": {"amount": a.exaggerate, "size": a.detail_size}})["exaggerate"] if a.exaggerate > 0 else None)
+            depth = exaggerate(depth, ex)
             top = mesh.relief_heights(orient(depth[::-1], lk["orientation"]), cols, a.relief_mm, a.invert)
             base = a.base_mm
         if a.wrap == "cylinder":                                        # --base-mm is the wall behind the relief
@@ -408,7 +413,7 @@ def main(argv=None):
     rl.add_argument("--preset", choices=list(PRESETS), help="override the look's ramp (for --lithophane)")
     rl.add_argument("--width-mm", type=float, default=100.0, metavar="MM", help="the print's width (default 100)")
     rl.add_argument("--px", type=int, metavar="N",
-                    help="points across the width (default one every 0.2 mm, at most the map's own pixels)")
+                    help="points across the width (default one every 0.2 mm, at most the map's own pixels; 0 = every pixel)")
     rl.add_argument("--relief-mm", type=float, default=8.0, metavar="MM",
                     help="height from the farthest to the nearest point (default 8)")
     rl.add_argument("--base-mm", type=float, default=2.0, metavar="MM",
@@ -423,6 +428,10 @@ def main(argv=None):
                     help="--wrap sphere: how far from top to bottom (180 = pole to pole; default the picture's proportions)")
     rl.add_argument("--invert", action="store_true", help="far raised instead of near (a mould)")
     rl.add_argument("--smooth-depth", type=float, metavar="R", help="smooth the depth first (px; default the look's)")
+    rl.add_argument("--exaggerate", type=float, metavar="A",
+                    help="make the relief more pronounced: details x (1 + A) against what's round them (0-10; default the look's)")
+    rl.add_argument("--detail-size", type=float, default=0.02, metavar="S",
+                    help="--exaggerate: how big the details are, a share of the width (default 0.02)")
     rl.add_argument("--lithophane", action="store_true",
                     help="print the rendered look as a lithophane: dark parts thick, light thin, seen lit from behind")
     rl.add_argument("--min-mm", type=float, default=0.8, metavar="MM", help="lithophane: thinnest (lightest), default 0.8")
