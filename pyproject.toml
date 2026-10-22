@@ -22,4 +22,4 @@ vathopy = "vathopy.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-vathopy = ["presets.json", "gui.html"]
+vathopy = ["presets.json", "gui.html", "static/*"]

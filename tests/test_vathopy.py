@@ -883,3 +883,129 @@ def test_heightfield_mesh_is_a_closed_solid_with_the_right_volume(tmp_path):
     assert lit.min() >= 0 and lit.max() <= 2.2 + 1e-6 and lit[:, 0].mean() > lit[:, -1].mean()
     with pytest.raises(ValueError):
         mesh.heightfield_mesh(np.zeros((1500, 1500)), 0.1, 1.0)
+
+
+def two_planes(h=120, w=160):
+    """Far floor-free background at 0.2 with a near block (0.8) in the middle; rows bottom-up."""
+    d = np.full((h, w), 0.2, np.float32)
+    d[30:90, 50:110] = 0.8
+    return d
+
+
+def test_new_look_keys_default_off_and_render_as_before():
+    from vathopy.look import normalise
+    lk = normalise({})
+    assert lk["selections"] == [] and lk["overlay"] is None and lk["view_shift"] is None
+    d = depth_field()
+    plain, _ = vathopy.render(d, {"ramp": {"preset": "MAGMA"}, "cycles": 2})
+    photo = np.random.default_rng(1).random((45, 60, 3)).astype(np.float32)
+    again, info = vathopy.render(d, {"ramp": {"preset": "MAGMA"}, "cycles": 2, "selections": [], "view_shift": None}, photo)
+    assert np.array_equal(plain, again) and info["overlay"] == "off"
+
+
+def test_selection_grows_to_depth_edges_and_gets_its_own_palette():
+    from vathopy import engine
+    from vathopy.look import normalise
+    d = two_planes()
+    sel = normalise({"selections": [{"point": [0.5, 0.5], "grow": 0, "softness": 0}]})["selections"][0]
+    t = (d - d.min()) / (d.max() - d.min())
+    m = engine.selection_mask(t, sel)
+    assert m[30:90, 50:110].min() == 1.0 and m.sum() == 60 * 60                 # the block, nothing else
+    assert engine.selection_mask(t, {**sel, "invert": True}).sum() == d.size - 60 * 60
+    base = {"ramp": {"preset": "WHITE_TO_BLACK"}}
+    out, _ = vathopy.render(d, {**base, "selections": [{"point": [0.5, 0.5], "ramp": {"preset": "BLACK_TO_WHITE"},
+                                                        "grow": 0, "softness": 0}]})
+    plain, _ = vathopy.render(d, base)
+    assert np.array_equal(out[0, 0], plain[0, 0])                               # outside: as before
+    assert plain[60, 80, 0] > 0.9 and out[60, 80, 0] < 0.1                      # inside: the other palette
+    # a figure standing on a floor that comes nearer going down the picture: "floors" keeps it off the floor
+    h, w = 120, 160
+    rows = np.arange(h)[:, None]                                                # bottom-up
+    scene = np.where(rows < 60, 0.5 + 0.4 * (59 - rows) / 59, 0.2) * np.ones((1, w))
+    scene[40:100, 60:100] = 0.5 + 0.4 * 19 / 59                                 # its feet at the floor's depth
+    scene = scene.astype(np.float32)
+    t = (scene - scene.min()) / (scene.max() - scene.min())
+    pick = {**sel, "point": [0.5, 0.42], "step": 0.02}
+    both = engine.selection_mask(t, pick)
+    only = engine.selection_mask(t, {**pick, "floors": True})
+    assert both[:30].mean() > 0.9 and only[:30].mean() < 0.1                     # the floor near the bottom
+    assert both[50:95, 65:95].min() == 1.0 and only[50:95, 65:95].min() == 1.0   # the figure in both
+
+
+def test_photo_overlay_blends_where_asked():
+    d = two_planes()
+    photo = np.ones((60, 80, 3), np.float32)                                    # white, half size: resized
+    base = {"ramp": {"preset": "WHITE_TO_BLACK"}, "base": "RAMP"}
+    out, info = vathopy.render(d, {**base, "overlay": {"opacity": 1.0}}, photo)
+    assert info["overlay"] == "on" and np.allclose(out, 1.0, atol=1e-5)
+    half, _ = vathopy.render(d, {**base, "overlay": {"opacity": 0.5}}, photo)
+    plain, _ = vathopy.render(d, base)
+    srgb = VIO.srgb_oetf
+    assert np.allclose(srgb(half[..., :3]), 0.5 * srgb(plain[..., :3]) + 0.5, atol=1e-3)
+    sel = [{"point": [0.5, 0.5], "grow": 0, "softness": 0}]
+    inside, _ = vathopy.render(d, {**base, "selections": sel, "overlay": {"opacity": 1.0, "where": "selections"}}, photo)
+    assert np.allclose(inside[60, 80], 1.0, atol=1e-5) and np.allclose(inside[5, 5], plain[5, 5], atol=1e-5)
+    _, info = vathopy.render(d, {**base, "overlay": {"opacity": 1.0}})
+    assert info["overlay"] == "no photo"
+
+
+def test_view_shift_moves_near_things_against_far_ones():
+    from vathopy import engine
+    from vathopy.look import normalise
+    d = two_planes()
+    vs = normalise({"view_shift": {"x": 0.0}})["view_shift"]
+    same, _ = engine.view_shift(d, vs)
+    assert same is d
+    vs = normalise({"view_shift": {"x": 1.0, "strength": 0.05}})["view_shift"]
+    z, p = engine.view_shift(d, vs, np.dstack([d] * 3))
+    k = 0.05 * 160
+    near = np.where(z[60] > 0.5)[0]
+    assert near.min() == 50 - round(k * 0.3) and near.max() == 109 - round(k * 0.3)   # near: left by 0.3 k
+    assert z.min() == pytest.approx(0.2) and np.all(np.isfinite(z))                   # gaps filled from behind
+    assert np.array_equal(p[..., 0], z)                                               # the photo moved alike
+    up = engine.view_shift(d, normalise({"view_shift": {"y": 1.0, "strength": 0.05}})["view_shift"])[0]
+    assert np.where(up[:, 80] > 0.5)[0].min() < 30                                    # up: near things lower
+
+
+def test_wrapped_meshes_are_closed_solids_with_the_right_volume():
+    from vathopy import mesh
+    rng = np.random.default_rng(2)
+    for kw in ({"arc_deg": 360}, {"arc_deg": 120}):
+        v, f = mesh.cylinder_mesh(rng.random((12, 30)) * 2, 40, 3, **kw)
+        assert mesh.check_closed(f) and mesh.volume(v, f) > 0
+    v, f = mesh.cylinder_mesh(np.zeros((30, 600)), 40, 3)
+    assert mesh.volume(v, f) == pytest.approx(np.pi * (40 ** 2 - 37 ** 2) * v[:, 2].max(), rel=1e-3)
+    for kw in ({"lon_deg": 360, "lat_deg": 180}, {"lon_deg": 200, "lat_deg": 180}, {"lon_deg": 90}):
+        v, f = mesh.sphere_mesh(rng.random((16, 24)) * 2, 40, 3, **kw)
+        assert mesh.check_closed(f) and mesh.volume(v, f) > 0
+    v, f = mesh.sphere_mesh(np.zeros((150, 300)), 40, 3, 360, 180)
+    assert mesh.volume(v, f) == pytest.approx(4 / 3 * np.pi * (40 ** 3 - 37 ** 3), rel=2e-3)
+    with pytest.raises(ValueError):
+        mesh.cylinder_mesh(np.zeros((4, 4)), 10, 10)                            # the wall can't fill the radius
+
+
+def test_gui_finds_photos_and_round_trips_the_new_settings(tmp_path):
+    from vathopy import gui
+    (tmp_path / "depth").mkdir()
+    vathopy.write_depth(depth_field(), str(tmp_path / "depth" / "IMG_7_depth_00001.exr"))
+    (tmp_path / "input" / "batch-20260101-000000").mkdir(parents=True)
+    import cv2
+    cv2.imwrite(str(tmp_path / "input" / "batch-20260101-000000" / "IMG_7.jpg"), np.full((30, 40, 3), 200, np.uint8))
+    maps = gui.Maps(tmp_path / "depth")
+    assert maps.photo_path("IMG_7_depth_00001.exr").name == "IMG_7.jpg"
+    assert maps.photo_path("IMG_8_depth_00001.exr") is None
+    s = {"palette": "FRINGE", "selections": [{"x": 0.3, "y": 0.6, "step": 0.004, "range": 0.1, "floors": True, "grow": 2,
+                                             "softness": 1.5, "palette": "MAGMA", "palette_invert": True, "cycles": 3,
+                                             "invert": False, "enabled": True, "locked": False}],
+         "overlay_opacity": 0.4, "overlay_mode": "screen", "overlay_where": "outside", "overlay_grey": True,
+         "view_x": -0.5, "view_y": 0.25, "view_strength": 0.08}
+    lk = gui.look_from_settings(s)
+    assert lk["selections"][0]["ramp"] == {"preset": "MAGMA", "mirror": True} and lk["view_shift"]["x"] == -0.5
+    back = gui.settings_from_look(lk)
+    for k in ("overlay_opacity", "overlay_mode", "overlay_where", "overlay_grey", "view_x", "view_y", "view_strength"):
+        assert back[k] == s[k], k
+    assert back["selections"] == [{k: v for k, v in s["selections"][0].items()}]
+    photo = maps.photo("IMG_7_depth_00001.exr", lk)
+    assert photo.shape == (90, 120, 3) and photo.max() == pytest.approx(200 / 255, abs=1e-3)
+    grid = gui.mesh_preview(maps, {"map": "IMG_7_depth_00001.exr", "settings": s, "cols": 24})
+    assert grid["cols"] == 24 and len(grid["t"]) == 24 * grid["rows"] and grid["aspect"] == pytest.approx(0.75)

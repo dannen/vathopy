@@ -153,6 +153,28 @@ def prepare_depth(raw, kind="log", low_pct=0.1, high_pct=99.9):
     return n.astype(np.float32), stats
 
 
+PHOTO_EXTS = (".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp", ".bmp")
+
+
+def read_photo(path, size=None):
+    """A photo as sRGB float32 0..1 RGB, rows top-down, turned upright by its EXIF orientation; resized
+    to ``size`` = (w, h) when given (area-averaged)."""
+    import cv2
+    img = cv2.imread(str(path), cv2.IMREAD_COLOR | cv2.IMREAD_ANYDEPTH)
+    if img is None:
+        raise ValueError(f"can't read the photo {path}")
+    scale = 65535.0 if img.dtype == np.uint16 else 255.0 if img.dtype == np.uint8 else 1.0
+    if size is not None and (img.shape[1], img.shape[0]) != tuple(size):
+        img = cv2.resize(img, tuple(int(v) for v in size), interpolation=cv2.INTER_AREA)
+    return np.ascontiguousarray(img[:, :, ::-1], dtype=np.float32) / np.float32(scale)
+
+
+def srgb_eotf(v):
+    """sRGB-encoded 0..1 -> linear (the inverse of srgb_oetf)."""
+    v = np.clip(np.asarray(v, dtype=np.float32), 0.0, 1.0)
+    return np.where(v <= 0.04045, v / 12.92, np.power((v + 0.055) / 1.055, 2.4)).astype(np.float32)
+
+
 # --- writing -------------------------------------------------------------------------------
 
 def srgb_oetf(x):

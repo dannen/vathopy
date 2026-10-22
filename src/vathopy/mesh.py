@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """3D-printable meshes from a depth map: a relief (near raised) or a lithophane of a rendered
-picture (thickness = darkness, so it shows the picture when lit from behind).
+picture (thickness = darkness, so it shows the picture when lit from behind), flat or wrapped round
+a cylinder or a sphere.
 
 Both are height fields on a flat base, written as one watertight solid in binary STL: the top is
 the triangulated grid of heights, walls run down from its border to the base, and the bottom is a
@@ -57,6 +58,109 @@ def heightfield_mesh(top, px_mm, base_mm):
     faces += [np.stack([p, pb, qb], -1), np.stack([p, qb, q], -1),            # walls, facing out
               np.stack([np.full_like(pb, cid), qb, pb], -1)]                  # the base, facing down
     return verts.astype(np.float32), np.concatenate(faces).astype(np.int64)
+
+
+def _shell(outer, inner, wrap, poles=None):
+    """A closed shell between two grids of points [rows, cols, 3] (u = columns going round the axis
+    counter-clockwise seen from above, v = rows going down): the outer surface, the inner one, and
+    joining them the top and bottom (rims, or with ``poles`` = (outer top, inner top, outer bottom,
+    inner bottom) points, fans to them) and, unless ``wrap`` (the columns go all the way round), the
+    two side walls. Returns (vertices, faces), normals out."""
+    rows, cols = outer.shape[:2]
+    n = rows * cols
+    o = np.arange(n).reshape(rows, cols)
+    i = o + n
+    verts = [outer.reshape(-1, 3), inner.reshape(-1, 3)]
+    if poles is not None:
+        verts.append(np.asarray(poles, np.float64).reshape(4, 3))
+        pto, pti, pbo, pbi = 2 * n, 2 * n + 1, 2 * n + 2, 2 * n + 3
+    jj = np.arange(cols if wrap else cols - 1)
+    j1 = (jj + 1) % cols
+    a, b, c, d = o[:-1][:, jj], o[:-1][:, j1], o[1:][:, jj], o[1:][:, j1]
+    ia, ib, ic, id_ = i[:-1][:, jj], i[:-1][:, j1], i[1:][:, jj], i[1:][:, j1]
+    faces = [np.stack([a, c, b], -1), np.stack([b, c, d], -1),                  # outer, facing out
+             np.stack([ia, ib, ic], -1), np.stack([ib, id_, ic], -1)]           # inner, facing in
+    ot, ot1, it, it1 = o[0, jj], o[0, j1], i[0, jj], i[0, j1]
+    ob, ob1, ib_, ib1 = o[-1, jj], o[-1, j1], i[-1, jj], i[-1, j1]
+    if poles is None:
+        faces += [np.stack([ot, ot1, it], -1), np.stack([ot1, it1, it], -1),    # top rim
+                  np.stack([ob1, ob, ib1], -1), np.stack([ob, ib_, ib1], -1)]   # bottom rim
+    else:
+        full = np.full_like(jj, 0)
+        faces += [np.stack([ot, ot1, full + pto], -1), np.stack([it1, it, full + pti], -1),
+                  np.stack([ob1, ob, full + pbo], -1), np.stack([ib_, ib1, full + pbi], -1)]
+    if not wrap:
+        for j, right in ((0, False), (cols - 1, True)):
+            lo, li = list(o[:, j]), list(i[:, j])
+            if poles is not None:
+                lo, li = [pto] + lo + [pbo], [pti] + li + [pbi]
+            lo, li = np.array(lo), np.array(li)
+            k0, k1 = slice(None, -1), slice(1, None)
+            t1 = np.stack([lo[k1], lo[k0], li[k0]], -1)
+            t2 = np.stack([lo[k1], li[k0], li[k1]], -1)
+            faces += [t1[:, ::-1], t2[:, ::-1]] if right else [t1, t2]
+    return (np.concatenate(verts).astype(np.float32),
+            np.concatenate([f.reshape(-1, 3) for f in faces]).astype(np.int64))
+
+
+def _check_size(rows, cols):
+    if rows < 2 or cols < 2:
+        raise ValueError("need at least 2 x 2 heights")
+    tri = 4 * rows * cols + 4 * rows + 4 * cols
+    if tri > MAX_TRIANGLES:
+        raise ValueError(f"{rows} x {cols} heights make about {tri:,} triangles; at most {MAX_TRIANGLES:,}: use fewer pixels")
+
+
+def cylinder_mesh(top, radius_mm, thickness_mm, arc_deg=360.0):
+    """``top`` (heights in mm, [rows, cols], rows top-down) wrapped round a cylinder standing on z = 0:
+    the picture's width goes ``arc_deg`` round the axis (360 = all the way, the ends joined), its height
+    up the axis at the same spacing, so it keeps its proportions. The heights stand out from
+    ``radius_mm``; the wall behind them is ``thickness_mm`` thick (inside). Returns (vertices, faces)."""
+    top = np.asarray(top, np.float64)
+    rows, cols = top.shape
+    _check_size(rows, cols)
+    r, t, arc = float(radius_mm), float(thickness_mm), np.radians(min(max(float(arc_deg), 1.0), 360.0))
+    if not (r > 0 and 0 < t < r):
+        raise ValueError("the radius must be above 0 and the wall thickness between 0 and the radius")
+    wrap = arc >= 2 * np.pi - 1e-9
+    th = arc * np.arange(cols) / (cols if wrap else cols - 1)
+    step = r * (th[1] - th[0])
+    z = (rows - 1 - np.arange(rows)) * step
+    cs, sn = np.cos(th)[None, :], np.sin(th)[None, :]
+    R = r + top
+    zz = np.broadcast_to(z[:, None], (rows, cols))
+    outer = np.stack([R * cs, R * sn, zz], -1)
+    ri = r - t
+    inner = np.stack([np.broadcast_to(ri * cs, (rows, cols)), np.broadcast_to(ri * sn, (rows, cols)), zz], -1)
+    return _shell(outer, inner, wrap)
+
+
+def sphere_mesh(top, radius_mm, thickness_mm, lon_deg=360.0, lat_deg=None):
+    """``top`` (heights in mm, [rows, cols], rows top-down) wrapped round a sphere centred on the origin:
+    the width goes ``lon_deg`` round (360 = all the way) and the height ``lat_deg`` from north to south,
+    centred on the equator (default: the picture's proportions at the equator, at most 180 = pole to
+    pole, where the top and bottom rows close at the poles). The heights stand out from ``radius_mm``;
+    the shell behind them is ``thickness_mm`` thick. Returns (vertices, faces)."""
+    top = np.asarray(top, np.float64)
+    rows, cols = top.shape
+    _check_size(rows, cols)
+    r, t = float(radius_mm), float(thickness_mm)
+    if not (r > 0 and 0 < t < r):
+        raise ValueError("the radius must be above 0 and the shell thickness between 0 and the radius")
+    lon = np.radians(min(max(float(lon_deg), 1.0), 360.0))
+    wrap = lon >= 2 * np.pi - 1e-9
+    lat = np.radians(min(float(lat_deg), 180.0)) if lat_deg else min(lon * rows / cols, np.pi)
+    poles = lat >= np.pi - 1e-9
+    th = lon * np.arange(cols) / (cols if wrap else cols - 1)
+    ph = lat / 2 - lat * ((np.arange(rows) + 0.5) / rows if poles else np.arange(rows) / (rows - 1))
+    cph, sph = np.cos(ph)[:, None], np.sin(ph)[:, None]
+    unit = np.stack([cph * np.cos(th)[None, :], cph * np.sin(th)[None, :], np.broadcast_to(sph, (rows, cols))], -1)
+    outer = unit * (r + top)[..., None]
+    inner = unit * (r - t)
+    pole_pts = None
+    if poles:
+        pole_pts = [(0, 0, r + top[0].mean()), (0, 0, r - t), (0, 0, -(r + top[-1].mean())), (0, 0, -(r - t))]
+    return _shell(outer, inner, wrap, pole_pts)
 
 
 def stl_bytes(verts, faces):

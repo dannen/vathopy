@@ -11,8 +11,9 @@ same depth map and settings, it produces the same picture as the add-on's artist
 
 On top of that it adds things the add-on doesn't have, all off by default: cycles and contour lines,
 smoothing, anti-aliasing and equalizing, a creative focus picked by depth (as tilted planes or 3D shapes),
-a deletion slab, orientation, 65 palettes plus your own, a web GUI, and 3D-printable reliefs and
-lithophanes (STL).
+a deletion slab, orientation, selections with their own palette, a photo overlay, a viewpoint shift, 65
+palettes plus your own, a web GUI with a 3D view, and 3D-printable reliefs and lithophanes (STL), flat or
+wrapped round a cylinder or a sphere.
 
 It runs on any Linux machine with Python 3.10+, numpy, OpenCV and OpenEXR. No GPU is needed: a
 24-megapixel picture renders in a few seconds on the CPU.
@@ -169,6 +170,46 @@ vathopy render depth.exr --cut 0.3 --cut-near 0.3 -o out/                    # k
 vathopy render depth.exr --cut 1 --keep @950,480:size=0.25 -o out/           # only what's in a sphere around one person
 ```
 
+### Selections
+
+A selection picks out a person or thing by its depth, and gives it its own palette and cycles. It grows from a
+point (`point`, fractions of the picture, top-down) over neighbouring pixels whose depth changes by at most
+`step` (a fraction of the depth range) from one pixel to the next, so it stops at depth edges such as someone's
+outline. Lower `step` stops at fainter edges. `range` also keeps it within that much depth of the point,
+`floors` stops it spreading onto ground that comes nearer going down the picture (the floor under someone's
+feet), `grow` widens it by some pixels and `softness` feathers its edge. Small pockets left inside are filled.
+`invert` selects everything else. There's no `render` flag for it: put it in a look (`-l`), or use the GUI.
+
+```json
+{"ramp": {"preset": "WHITE_TO_BLACK"}, "cycles": 2,
+ "selections": [{"point": [0.25, 0.5], "step": 0.003, "floors": true, "ramp": {"preset": "COPPER_TO_BLACK"}, "cycles": 3}]}
+```
+
+It works from depth alone, so a person standing against a wall at the same depth can't be told from it; lower
+`step` helps where there's a small depth step between them. The growth runs on the depth map at most 1536 px
+across, so a preview and the full render select the same pixels.
+
+### Photo overlay
+
+`overlay` blends the photo the depth map was made from over the picture, under the cut: `opacity` 0–1, `mode`
+`normal`, `multiply`, `screen` or `soft_light`, `where` `all`, `selections` (only inside them) or `outside`, and
+`grey` for black and white. The photo isn't stored in the look; give it to `render`:
+
+```bash
+vathopy render depth.exr -l look.json --photo photo.jpg --overlay 0.4 -o out/
+```
+
+It's resized to the depth map and turned upright from its EXIF orientation. The GUI finds it by name (below).
+
+### Viewpoint shift
+
+`view_shift` looks at the scene from a little to one side: `{"x": -1..1, "y": -1..1, "strength": 0.05, "pivot":
+0.5}`. Each pixel moves by its depth, near ones one way and far ones the other, as if the camera moved right
+(x > 0) or up (y > 0); `strength` is how far, as a share of the picture's width, and the depth at `pivot` (0 =
+far … 1 = near) stays put. Gaps that open behind near things are filled from what's behind them, which smears a
+little where a large area opens up. It acts on the depth map (and the overlay photo) first, so fringes, focuses
+and the cut all follow the new view; focus points, keep shapes and selections stay where they were picked.
+
 ### 3D printing
 
 `vathopy relief` writes a binary STL (millimetres) of a closed solid on a flat base, ready for a slicer:
@@ -183,6 +224,17 @@ A **relief** raises the near parts `--relief-mm` above the far ones. A **lithoph
 (from `-l`: a look, or a PNG the GUI saved) as thickness, dark parts thick and light parts thin, so it shows
 the picture when lit from behind. Points are 0.2 mm apart by default (`--px` sets how many across, never more
 than the map has); a 100 mm print is about 450,000 triangles, 22 MB. The look's orientation is used.
+
+`--wrap cylinder` or `--wrap sphere` wraps it round instead: the picture's width goes `--arc-deg` round the axis
+(360, the default, joins its two ends), its height keeps the picture's proportions (on a sphere `--lat-deg` sets
+it; 180 runs pole to pole, closed at the poles), and the relief stands out from `--radius-mm` with a
+`--base-mm` thick wall inside it. A lithophane wrapped round a cylinder is a lamp shade.
+
+```bash
+vathopy relief depth.exr -o vase.stl --wrap cylinder --radius-mm 40 --relief-mm 5 --base-mm 2
+vathopy relief depth.exr -o globe.stl --wrap sphere --radius-mm 30 --arc-deg 180
+vathopy relief depth.exr -o shade.stl --wrap cylinder --lithophane -l saved.png --min-mm 0.8 --max-mm 3
+```
 
 ### Creative focus
 
@@ -300,6 +352,7 @@ nohup .venv/bin/vathopy gui > ~/vathopy-gui.log 2>&1 &
 | `--port N` | `8770` | The port; use another to run two at once |
 | `--host ADDR` | `127.0.0.1` | The listen address; `0.0.0.0` makes it reachable from the network (set a password) |
 | `--preview-size N` | `1280` | The largest preview, in px, while a slider is dragged |
+| `--photos DIR` | `input` beside `--depth-dir` | Where the photos the depth maps were made from are, for **Photo** (searched with subfolders) |
 
 For example, another set of depth maps, saving somewhere else, on a second port:
 
@@ -334,7 +387,7 @@ install -e .`) means no reinstall is needed unless `requirements.txt` changed.
   down arrow keys to step through them. The selected map's name shows above the picture. Only depth EXRs are
   listed; files with `normals`, `albedo` or `bench_` in the name are left out. Each map is prepped (`--kind
   near-bright`) once and kept in memory, and read again if its file changes. **Refresh**, next to the folder
-  path, picks up maps added to (or removed from) the folder since the page loaded, keeping the selected map if
+  path (or the R key), picks up maps added to (or removed from) the folder since the page loaded, keeping the selected map if
   it's still there.
 - **Panel and theme:** the buttons next to the vathopy title switch between a dark and a light theme (it follows
   the system's setting until you choose; the choice is remembered in that browser) and move the panel to the
@@ -344,7 +397,7 @@ install -e .`) means no reinstall is needed unless `requirements.txt` changed.
   fields, saved on every render. Reloading the page puts it all back; if that map is gone, the settings go onto
   the first map without its focuses and keep shapes. **Reset** (next to the title) asks first, then forgets it all
   and starts from the defaults; the theme, panel side and collapsed sections stay.
-- **Sections:** click a heading's ▾ (Palette, Shape, Focus, Quality, Looks, Crop) to collapse it; the browser
+- **Sections:** click a heading's ▾ (Palette, Viewpoint, Focus, Cut, Selections, 3D view, …) to collapse it; the browser
   remembers which are collapsed. Each focus panel folds the same way from the ▾ on its left.
 - **Palette:** a box three rows of swatches high (scroll for more) with all presets plus the black/white fringe ramp, then your own palettes (marked ★, re-read
   from the palette folder on every page load), with **Invert** (mirror the ramp) and **Equalize**. **Shift
@@ -433,7 +486,27 @@ install -e .`) means no reinstall is needed unless `requirements.txt` changed.
   softness fades them, and deleted parts become black or white. **Keep a shape**, then click
   the picture: a sphere there (change it to a box, rod or cone, size and turn it) survives the cut. Keep shapes
   are cleared when another depth map is chosen, like focuses.
-- **3D print:** Relief or Lithophane, width, points across, relief height and base (or thinnest/thickest),
+- **Points** (under the picture, or the P key): a dot on the picture for each focus (F1…), keep shape (K1…)
+  and target (T1…). Drag one to move it: a focus or keep shape takes the depth under its new place (hold Shift
+  as you let go to keep its depth), a target grows again from there. A click opens its panel; locked ones don't
+  move.
+- **Viewpoint:** Left / right and Down / up shift the view (see Viewpoint shift above), Amount sets how far.
+- **Selections:** **Pick a target**, then click a person or thing: it's selected up to its depth edges and gets a
+  palette of its own (a colour, to start with). Each target has a palette menu ("Same palette as the picture"
+  keeps the picture's), Reverse palette, **Stop at floors**, Everything else, and sliders for Edge (the step
+  that stops it: lower if it spills onto what's behind), Depth range, Grow, Soft edge and its own Cycles.
+  Targets are cleared when another depth map is chosen.
+- **Photo:** finds the photo each depth map was made from in `--photos` by name (`<photo>_depth_00001.exr` comes
+  from `<photo>.jpg`, `.png` or another picture type; batch uploads in `batch-*` subfolders count; the newest
+  wins) and says which, or where it looked. **Photo over the picture** blends it in, with a blend mode, where it
+  shows (everywhere, only on the targets, or outside them) and Black and white.
+- **3D view:** a small low-poly wireframe of the depth map's surface with the keep shapes, shape focuses, focus
+  planes and the cut's slabs in it, to see where they sit in space. Drag to turn it, scroll to zoom, right-drag
+  to move it, double-click (or Start view) to go back. With 3D print set to a cylinder or sphere it shows the
+  picture wrapped round that instead. It uses three.js, which comes with vathopy; nothing is fetched from
+  elsewhere.
+- **3D print:** Flat, or wrapped round a cylinder or a sphere (radius, how far round, and on a sphere how far
+  from top to bottom; the base becomes the wall inside), Relief or Lithophane, width, points across, relief height and base (or thinnest/thickest),
   Far raised, and Use the crop. **Save local** writes the STL into `--favourites` on the machine running
   vathopy (`<map>_<look name or "vathopy">_relief.stl` or `…_lithophane.stl`, never overwriting: `-001`, …);
   **Download STL** sends the same file to the browser and writes nothing on the server. Both build it from the
@@ -520,6 +593,9 @@ Every key is optional; unknown keys are rejected so that typos don't pass silent
 | `solo` | `""` | Show only one area (its name) or one band (`"BAND:<id>"`) |
 | `depth_scale` | `1.0` | vathopy: how deep the scene is relative to its width, for shape focuses and keep shapes |
 | `cut` | `null` | vathopy: the deletion slabs, `{"depth": 0-1 (from far), "near": 0-1 (from near), "softness", "fill": "black"/"white", "keep": [shapes]}` |
+| `selections` | `[]` | vathopy: `[{"point": [fx, fy], "step", "range", "floors", "grow", "softness", "ramp": {…} or null, "cycles": n or null, "invert"}]` (see Selections) |
+| `overlay` | `null` | vathopy: the photo over the picture, `{"opacity", "mode", "where", "grey"}` (see Photo overlay) |
+| `view_shift` | `null` | vathopy: `{"x", "y", "strength", "pivot"}` (see Viewpoint shift) |
 
 Mask targets: `ALL_BANDS`, `ALL_LIGHTS`, `BAND:<id>`, `LIGHT:<area id>`, `GROUP:<name>`.
 See `examples/demo_look.json` and `examples/template_look.json`. The latter was extracted from the
@@ -566,4 +642,5 @@ GPL-3.0-or-later (see `LICENSE`), as required for a port of the GPL add-on. The 
 algorithms © 2026 Karim Joseph Nassar. Colour maps: Magma, Inferno, Plasma and Viridis by Nathaniel Smith and
 Stéfan van der Walt (CC0), Cividis by Jamie R. Nuñez, Christopher R. Anderton and Ryan S. Renslow and Twilight
 by Bastian Bechtold (both under matplotlib's licence), Turbo by Anton Mikhailov, © Google (Apache-2.0); the thermal LUTs are from
-[boson_lut](https://github.com/dannen/boson_lut).
+[boson_lut](https://github.com/dannen/boson_lut). The GUI's 3D view uses [three.js](https://threejs.org/) r170
+(MIT, © 2010-2024 three.js authors; `src/vathopy/static/three-LICENSE`), shipped with the package.

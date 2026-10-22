@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """``vathopy gui``: a small local web app for trying looks on depth maps with sliders.
 
-Python standard library HTTP server + vathopy; the page is gui.html (plain JavaScript, no
-external libraries). It lists the depth maps in one folder (raw Marigold/ComfyUI output,
+Python standard library HTTP server + vathopy; the page is gui.html (plain JavaScript; its small 3D
+view uses three.js, bundled in static/ with its MIT licence, so nothing is fetched from elsewhere). It lists the depth maps in one folder (raw Marigold/ComfyUI output,
 near = bright), preps each once (``prep --kind near-bright``) and keeps it in memory, along
 with the smoothed versions, so moving a slider only re-renders:
 
@@ -49,11 +49,18 @@ from . import io as VIO
 from . import look as LOOK
 from . import meta as META
 from . import palettes as PAL
-from .engine import focus_depth_at, focus_weights, orient, render, smooth_depth
+from .engine import focus_depth_at, focus_weights, orient, render, smooth_depth, view_shift
 from .probe import probe
 from .ramp import PRESETS, Ramp
 
 HTML = Path(__file__).with_name("gui.html")
+STATIC = Path(__file__).with_name("static")      # three.js (MIT, see static/three-LICENSE) and the 3D view
+STATIC_FILES = {"three.module.min.js", "OrbitControls.js", "view3d.js"}
+MESH_PREVIEW_MAX_COLS = 200
+PHOTO_SEARCH_TTL_S = 10
+# A depth map's name -> the photo's stem: <stem>_<prediction>_<00001 | 1280px>[-001].exr (a crop isn't matched:
+# its photo would need the same crop).
+PHOTO_OF_MAP = re.compile(r"(.+?)_(?:depth|normals|albedo)(?:_\d{5}|_\d+px)?(?:-\d{3})?")
 FRINGE = "FRINGE"  # the black/white EASE ramp that --cycles uses with no preset
 FRINGE_RAMP = {"stops": [[0.0, [0.0, 0.0, 0.0, 1.0]], [1.0, [1.0, 1.0, 1.0, 1.0]]], "interpolation": "EASE"}
 # Highlight colours for focus 1-16 (sRGB), the same order as in gui.html.
@@ -93,21 +100,57 @@ def palettes():
     return out
 
 
-def look_from_settings(s, preview=False):
-    """Page settings -> a vathopy look dict."""
-    key = s.get("palette", FRINGE)
+def _page_ramp(key, invert, shift=0):
+    """A page palette (swatch key, Invert, Shift colours) -> a look ramp."""
     if key != FRINGE and key not in PRESETS:
         raise ValueError(f"unknown palette {key!r}")
     if key == FRINGE:
         ramp = json.loads(json.dumps(FRINGE_RAMP))
-        if s.get("invert"):
+        if invert:
             ramp["stops"] = [[0.0, [1.0, 1.0, 1.0, 1.0]], [1.0, [0.0, 0.0, 0.0, 1.0]]]
     else:
-        ramp = {"preset": key, "mirror": True} if s.get("invert") else {"preset": key}
-    shift = int(round(float(s.get("shift", 0) or 0)))   # the palette's colours moved along its stops
+        ramp = {"preset": key, "mirror": True} if invert else {"preset": key}
+    shift = int(round(float(shift or 0)))               # the palette's colours moved along its stops
     if shift:
         ramp["shift"] = shift
-    lk = {"ramp": ramp, "equalize": bool(s.get("equalize"))}
+    return ramp
+
+
+def _ramp_to_page(ramp):
+    """A look ramp -> (palette key, invert, shift); ramps the page can't show fall back to the fringe."""
+    if "preset" in ramp:
+        return ramp["preset"], bool(ramp.get("mirror")), ramp.get("shift", 0)
+    stops = ramp.get("stops", [])
+    return FRINGE, bool(stops) and stops[0][1][:3] == [1.0, 1.0, 1.0], ramp.get("shift", 0)
+
+
+def _selections_from_page(sels):
+    return [{"point": [min(max(float(sel.get("x", 0.5)), 0.0), 1.0), min(max(float(sel.get("y", 0.5)), 0.0), 1.0)],
+             "step": float(sel.get("step", 0.003)), "range": float(sel.get("range", 0.0) or 0.0),
+             "floors": bool(sel.get("floors")), "grow": float(sel.get("grow", 1.0)), "softness": float(sel.get("softness", 1.0)),
+             "ramp": _page_ramp(sel["palette"], sel.get("palette_invert")) if sel.get("palette") else None,
+             "cycles": float(sel["cycles"]) if float(sel.get("cycles", 0) or 0) > 0 else None,
+             "invert": bool(sel.get("invert")), "enabled": bool(sel.get("enabled", True)), "locked": bool(sel.get("locked", False))}
+            for sel in (sels or [])[:MAX_FOCUS]]
+
+
+def _selections_to_page(lk):
+    out = []
+    for sel in lk.get("selections") or []:
+        palette, pinv, _ = _ramp_to_page(sel["ramp"]) if sel.get("ramp") else ("", False, 0)
+        pt = sel.get("point", [0.5, 0.5])
+        out.append({"x": pt[0], "y": pt[1], "step": sel.get("step", 0.003), "range": sel.get("range", 0.0),
+                    "floors": bool(sel.get("floors")), "grow": sel.get("grow", 1.0), "softness": sel.get("softness", 1.0),
+                    "palette": palette, "palette_invert": pinv, "cycles": sel.get("cycles") or 0,
+                    "invert": bool(sel.get("invert")), "enabled": bool(sel.get("enabled", True)),
+                    "locked": bool(sel.get("locked", False))})
+    return out
+
+
+def look_from_settings(s, preview=False):
+    """Page settings -> a vathopy look dict."""
+    lk = {"ramp": _page_ramp(s.get("palette", FRINGE), s.get("invert"), s.get("shift", 0)),
+          "equalize": bool(s.get("equalize"))}
     cycles = float(s.get("cycles", 0) or 0)
     if cycles > 0:
         lk["cycles"] = cycles
@@ -126,6 +169,14 @@ def look_from_settings(s, preview=False):
     if cut > 0 or near > 0 or keep:
         lk["cut"] = {"depth": cut, "near": near, "softness": float(s.get("cut_softness", 0) or 0),
                      "fill": s.get("cut_fill") or "black", "keep": keep}
+    if s.get("selections"):
+        lk["selections"] = _selections_from_page(s["selections"])
+    vx, vy = float(s.get("view_x", 0) or 0), float(s.get("view_y", 0) or 0)
+    if vx or vy:
+        lk["view_shift"] = {"x": vx, "y": vy, "strength": float(s.get("view_strength", 0.05) or 0.05)}
+    if float(s.get("overlay_opacity", 0) or 0) > 0:
+        lk["overlay"] = {"opacity": float(s["overlay_opacity"]), "mode": s.get("overlay_mode") or "normal",
+                         "where": s.get("overlay_where") or "all", "grey": bool(s.get("overlay_grey"))}
     o = s.get("orientation") or {}
     lk["orientation"] = {"turns": int(o.get("turns", 0) or 0), "mirror": bool(o.get("mirror"))}
     style = s.get("focus_style", "off")
@@ -149,6 +200,8 @@ def highlight(depth, lk):
     """The look without its focus, desaturated, with each focus's region tinted in its colour:
     top-down 8-bit sRGB. A focus's region is its band weight (1 = fully in focus), the same
     band the result uses."""
+    depth, _ = view_shift(depth, lk["view_shift"])          # the tints on the shifted view, like the picture
+    lk = {**lk, "view_shift": None}
     plain = LOOK.normalise({**lk, "focus": [], "base": "RAMP", "orientation": {"turns": 0, "mirror": False}})
     out, _ = render(depth, plain)
     rgb = _srgb8(out[..., :3]).astype(np.float32) / 255.0
@@ -164,21 +217,21 @@ def highlight(depth, lk):
 
 def settings_from_look(lk):
     """A saved look -> page settings (best effort; unknown ramps fall back to the fringe)."""
-    ramp = lk.get("ramp", {})
-    if "preset" in ramp:
-        palette, invert = ramp["preset"], bool(ramp.get("mirror"))
-    else:
-        stops = ramp.get("stops", [])
-        palette = FRINGE
-        invert = bool(stops) and stops[0][1][:3] == [1.0, 1.0, 1.0]
+    palette, invert, shift = _ramp_to_page(lk.get("ramp", {}))
     c = lk.get("contours") or {}
-    return {"palette": palette, "invert": invert, "shift": ramp.get("shift", 0), "cycles": lk.get("cycles") or 0,
+    return {"palette": palette, "invert": invert, "shift": shift, "cycles": lk.get("cycles") or 0,
             "contours": c.get("cycles", 0), "contour_strength": c.get("strength", 0.85) if c else 0,
             "contour_width": c.get("width", 2.0), "smooth": lk.get("smooth_depth", 0),
             "supersample": lk.get("supersample", 1), "equalize": bool(lk.get("equalize")),
             "orientation": dict(lk.get("orientation") or {"turns": 0, "mirror": False}),
             "depth_scale": float(lk.get("depth_scale", 1.0)), **_cut_settings(lk),
-            **_focus_settings(lk)}
+            **_focus_settings(lk), "selections": _selections_to_page(lk), **_overlay_settings(lk)}
+
+
+def _overlay_settings(lk):
+    ov, vs = lk.get("overlay") or {}, lk.get("view_shift") or {}
+    return {"view_x": float(vs.get("x", 0.0)), "view_y": float(vs.get("y", 0.0)), "view_strength": float(vs.get("strength", 0.05)),"overlay_opacity": float(ov.get("opacity", 0.0)), "overlay_mode": ov.get("mode", "normal"),
+            "overlay_where": ov.get("where", "all"), "overlay_grey": bool(ov.get("grey"))}
 
 
 def _slider_lean_angle(lean, angle):
@@ -242,11 +295,14 @@ def _focus_settings(lk):
 class Maps:
     """Depth maps in one folder, prepped and smoothed on demand, cached in memory."""
 
-    def __init__(self, folder):
+    def __init__(self, folder, photos=None):
         self.folder = Path(folder).expanduser()
+        self.photos = Path(photos).expanduser() if photos else self.folder.parent / "input"
         self._lock = threading.Lock()
         self._prepped = {}
         self._smoothed = {}
+        self._photo = (None, None)                         # ((path, mtime, map size), the photo at the map's size)
+        self._photo_paths = {}                             # map name -> (when looked, photo path or None)
 
     def list(self):
         """Depth maps only: normals/albedo outputs and bench.py runs are left out."""
@@ -270,6 +326,58 @@ class Maps:
                     self._smoothed.clear()
                 self._smoothed[key] = smooth_depth(depth, smooth)
             return self._smoothed[key] if smooth > 0 else depth
+
+    def photo_path(self, name):
+        """The photo a depth map was made from: <stem>.<jpg|png|...> anywhere under the photos folder
+        (batch.sh uploads into batch-<time>/ subfolders; the newest wins), where the map is named
+        <stem>_<depth|normals|albedo>_<00001|1280px>[-001].exr. None if there's none."""
+        hit = self._photo_paths.get(name)
+        if hit and time.monotonic() - hit[0] < PHOTO_SEARCH_TTL_S:      # previews ask often; the search walks the folder
+            return hit[1]
+        m = PHOTO_OF_MAP.fullmatch(Path(name).stem)
+        found = []
+        if m and self.photos.is_dir():
+            stem = m.group(1).lower()
+            found = [p for p in self.photos.rglob("*") if p.suffix.lower() in VIO.PHOTO_EXTS and p.stem.lower() == stem
+                     and p.is_file()]
+        path = max(found, key=lambda p: p.stat().st_mtime) if found else None
+        self._photo_paths[name] = (time.monotonic(), path)
+        return path
+
+    def photo(self, name, lk):
+        """The photo for the look's overlay (sRGB, top-down, at the map's full size), or None when the look
+        has no overlay or there's no photo. The last one is kept in memory."""
+        if not lk.get("overlay") or not lk["overlay"]["opacity"] > 0:
+            return None
+        path = self.photo_path(name)
+        if path is None:
+            return None
+        h, w = self.depth(name).shape
+        key = (str(path), path.stat().st_mtime_ns, (w, h))
+        with self._lock:
+            if self._photo[0] != key:
+                self._photo = (key, VIO.read_photo(path, (w, h)))
+            return self._photo[1]
+
+
+def mesh_preview(maps, req):
+    """The 3D view's surface: the map's windowed depth (0 far .. 1 near, as shapes measure it) on a
+    ``cols``-wide grid, rows top-down; ``aspect`` = height / width of the picture, ``zk`` = how much
+    the add-on's relief stretches depth relative to width (to place plane focuses)."""
+    from . import mesh
+    from .engine import MIN_SCALE, _window, plane_dims, remapped
+    s = req.get("settings", {})
+    d = maps.depth(req["map"], float(s.get("smooth", 0) or 0))
+    lk = look_from_settings(s, preview=True)
+    f = remapped(d, lk)
+    lo, hi = _window(f, lk)
+    t = np.clip((f[::-1] - lo) / (hi - lo), 0.0, 1.0)
+    cols = min(max(int(req.get("cols", 48)), 2), MESH_PREVIEW_MAX_COLS)
+    small = mesh._resize(t, cols)
+    pw, ph = plane_dims(lk, f.shape)
+    return {"cols": int(small.shape[1]), "rows": int(small.shape[0]), "aspect": ph / pw,
+            "zk": (hi - lo) * max(float(lk["plane"]["scale"]), MIN_SCALE) / pw,
+            "t": np.round(small, 3).ravel().tolist()}
 
 
 def _preview_depth(d, max_size):
@@ -341,6 +449,8 @@ def make_handler(maps, favourites, preview_size, auth=None, palettes_dir=None):
                     return self._file()
                 if path == "/":
                     return self._send(200, HTML.read_bytes(), "text/html; charset=utf-8")
+                if path.startswith("/static/") and path[8:] in STATIC_FILES:
+                    return self._send(200, (STATIC / path[8:]).read_bytes(), "text/javascript; charset=utf-8")
                 if path == "/api/maps":
                     return self._send(200, {"folder": str(maps.folder), "maps": maps.list()})
                 if path == "/api/palettes":
@@ -375,6 +485,11 @@ def make_handler(maps, favourites, preview_size, auth=None, palettes_dir=None):
                     h, w = d.shape
                     x, y = float(req["x"]), float(req["y"])           # fractions of the picture, top-down
                     return self._send(200, {"depth": focus_depth_at(d, look_from_settings(s), x * w, y * h)})
+                if path == "/api/photo":
+                    p = maps.photo_path(req["map"])
+                    return self._send(200, {"photo": p.name if p else None, "folder": str(maps.photos)})
+                if path == "/api/mesh_preview":
+                    return self._send(200, mesh_preview(maps, req))
                 if path == "/api/export":
                     return self._export(req)
                 if path == "/api/save":
@@ -414,7 +529,7 @@ def make_handler(maps, favourites, preview_size, auth=None, palettes_dir=None):
             if req.get("view") == "highlight" and lk["focus"]:
                 img = highlight(d, lk)
             else:
-                out, _ = render(d, lk)
+                out, _ = render(d, lk, maps.photo(req["map"], lk))
                 img = _srgb8(out[::-1, :, :3])
             ms = (time.perf_counter() - t0) * 1000
             ok, png = cv2.imencode(".png", img[:, :, ::-1])
@@ -427,7 +542,8 @@ def make_handler(maps, favourites, preview_size, auth=None, palettes_dir=None):
             import cv2
             s = req.get("settings", {})
             d = maps.depth(req["map"], float(s.get("smooth", 0) or 0))
-            out, _ = render(d, look_from_settings(s))
+            lk = look_from_settings(s)
+            out, _ = render(d, lk, maps.photo(req["map"], lk))
             return self._send(200, _png16(out, req), "image/png",
                               {"Content-Disposition": f'attachment; filename="{_out_name(req)}.png"'})
 
@@ -442,7 +558,7 @@ def make_handler(maps, favourites, preview_size, auth=None, palettes_dir=None):
             depth = maps.depth(req["map"], float(s.get("smooth", 0) or 0))          # rows bottom-up
             if req.get("mode") == "lithophane":
                 lk = look_from_settings({**s, "orientation": {}})
-                out, _ = render(depth, lk)
+                out, _ = render(depth, lk, maps.photo(req["map"], lk))
                 td = np.clip(VIO.srgb_oetf(out[::-1, :, :3]), 0.0, 1.0)              # the picture, top-down
             else:
                 td = depth[::-1]
@@ -452,7 +568,11 @@ def make_handler(maps, favourites, preview_size, auth=None, palettes_dir=None):
             if t + b >= h or l + r >= w:
                 raise ValueError("the crop leaves nothing")
             td = orient(td[t:h - b, l:w - r], o)
-            width_mm = float(req.get("width_mm", 100))
+            wrap = req.get("wrap") or "flat"
+            if wrap not in ("flat", "cylinder", "sphere"):
+                raise ValueError("wrap must be flat, cylinder or sphere")
+            radius, arc = float(req.get("radius_mm", 40)), float(req.get("arc_deg", 360))
+            width_mm = float(req.get("width_mm", 100)) if wrap == "flat" else radius * np.radians(arc)   # round the outside
             cols = min(int(req.get("px") or round(width_mm / 0.2) + 1), td.shape[1])
             if req.get("mode") == "lithophane":
                 lo, hi = float(req.get("min_mm", 0.8)), float(req.get("max_mm", 3.0))
@@ -462,12 +582,18 @@ def make_handler(maps, favourites, preview_size, auth=None, palettes_dir=None):
                 base = float(req.get("base_mm", 2))
             if not (width_mm > 0 and base >= 0 and cols >= 2):
                 raise ValueError("width and base must be above 0, and at least 2 points across")
-            px_mm = width_mm / (top.shape[1] - 1)
-            verts, faces = mesh.heightfield_mesh(top, px_mm, base)
-            stem = f"{_out_name(req)}_{'lithophane' if req.get('mode') == 'lithophane' else 'relief'}"
+            if wrap == "cylinder":                       # the base is the wall behind the relief
+                verts, faces = mesh.cylinder_mesh(top, radius, base, arc)
+            elif wrap == "sphere":
+                verts, faces = mesh.sphere_mesh(top, radius, base, arc, float(req.get("lat_deg", 0) or 0) or None)
+            else:
+                verts, faces = mesh.heightfield_mesh(top, width_mm / (top.shape[1] - 1), base)
+            stem = (f"{_out_name(req)}_{'lithophane' if req.get('mode') == 'lithophane' else 'relief'}"
+                    + ("" if wrap == "flat" else f"_{wrap}"))
             data = mesh.stl_bytes(verts, faces)
+            ext = verts.max(axis=0) - verts.min(axis=0)
             info = {"X-Triangles": str(len(faces)), "X-Points": f"{top.shape[1]}x{top.shape[0]}",
-                    "X-Size-MM": f"{width_mm:g}x{px_mm * (top.shape[0] - 1):.1f}x{float(verts[:, 2].max()):.1f}"}
+                    "X-Size-MM": f"{ext[0]:.1f}x{ext[1]:.1f}x{ext[2]:.1f}"}
             if req.get("save"):                          # Save local: into the favourites folder, never overwriting
                 favourites.mkdir(parents=True, exist_ok=True)
                 path, n = favourites / f"{stem}.stl", 1
@@ -514,7 +640,8 @@ def make_handler(maps, favourites, preview_size, auth=None, palettes_dir=None):
             """The full-quality result (as Download PNG gives it) written to the favourites folder, never overwriting."""
             s = req.get("settings", {})
             d = maps.depth(req["map"], float(s.get("smooth", 0) or 0))
-            out, _ = render(d, look_from_settings(s))
+            lk = look_from_settings(s)
+            out, _ = render(d, lk, maps.photo(req["map"], lk))
             favourites.mkdir(parents=True, exist_ok=True)
             stem = _out_name(req)
             png = favourites / f"{stem}.png"
@@ -551,7 +678,8 @@ def make_handler(maps, favourites, preview_size, auth=None, palettes_dir=None):
             look_path = favourites / "looks" / f"{name}.json"
             look_path.write_text(json.dumps({"vathopy_look": 1, "comment": f"saved from vathopy gui ({mapname})",
                                              **{k: v for k, v in lk.items() if k != "vathopy_look"}}, indent=1) + "\n")
-            out, _ = render(maps.depth(mapname), LOOK.normalise(lk))
+            lk = LOOK.normalise(lk)
+            out, _ = render(maps.depth(mapname), lk, maps.photo(mapname, lk))
             stem = Path(mapname).stem
             png = favourites / f"{stem}_{name}.png"
             n = 1
@@ -603,8 +731,8 @@ def _out_name(req):
     return (_safe_name(Path(req["map"]).stem) or "depth") + "_" + (_safe_name(req.get("name")) or "vathopy")
 
 
-def serve(depth_dir, favourites, host="127.0.0.1", port=8770, preview_size=1280, palettes_dir=None):
-    maps = Maps(depth_dir)
+def serve(depth_dir, favourites, host="127.0.0.1", port=8770, preview_size=1280, palettes_dir=None, photos=None):
+    maps = Maps(depth_dir, photos)
     palettes_dir = palettes_dir or PAL.default_dir()
     PAL.register(palettes_dir)
     auth = os.environ.get("VATHOPY_GUI_AUTH") or None
@@ -614,7 +742,7 @@ def serve(depth_dir, favourites, host="127.0.0.1", port=8770, preview_size=1280,
         print("warning: listening on a network address with no VATHOPY_GUI_AUTH set", flush=True)
     httpd = ThreadingHTTPServer((host, port), make_handler(maps, favourites, preview_size, auth, palettes_dir))
     print(f"vathopy gui on http://{host}:{port}/  (depth maps: {maps.folder}, {len(maps.list())} found; "
-          f"saves to {Path(favourites).expanduser()}; your palettes: {Path(palettes_dir).expanduser()}; "
+          f"photos: {maps.photos}; saves to {Path(favourites).expanduser()}; your palettes: {Path(palettes_dir).expanduser()}; "
           + ("password required)" if auth else "no password)"), flush=True)
     try:
         httpd.serve_forever()

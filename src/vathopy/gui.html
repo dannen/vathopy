@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>vathopy</title>
+<script type="importmap">{ "imports": { "three": "/static/three.module.min.js" } }</script>
 <style>
   :root {
     color-scheme: dark;
@@ -107,9 +108,9 @@
   main.actual .work { align-items: flex-start; max-width: none; }
   main.actual #view, main.actual #view2, main.actual #pair.on #viewbox { max-width: none; max-height: none; cursor: zoom-out; }
   main #view.picking, main #view2.picking { cursor: crosshair; }
-  #pick, #pick_keep, #download, #save_local, #pairbtn, #download2, #save_local2 { display: inline-flex; align-items: center; gap: 7px; }
+  #pick, #pick_keep, #pick_sel, #download, #save_local, #pairbtn, #download2, #save_local2 { display: inline-flex; align-items: center; gap: 7px; }
   #download .icon, #save_local .icon, #download2 .icon, #save_local2 .icon { width: 18px; height: 18px; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; fill: none; flex: none; }
-  #pick .plus, #pick_keep .plus { width: 20px; height: 20px; stroke: currentColor; stroke-width: 3.2; stroke-linecap: round; flex: none; }
+  #pick .plus, #pick_keep .plus, #pick_sel .plus { width: 20px; height: 20px; stroke: currentColor; stroke-width: 3.2; stroke-linecap: round; flex: none; }
   button.ghost[aria-pressed=true] { border-color: var(--accent); color: var(--focus); }
   .band { border: 1px solid var(--line); border-radius: 8px; padding: 2px 8px 8px; margin-top: 8px; }
   .band .head { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; color: var(--dim); }
@@ -119,6 +120,9 @@
   .shaperow { display: flex; gap: 6px; margin: 6px 0 2px; }
   .shaperow select { flex: 1; padding: 3px 6px; }
   .shaperow select.fill { flex: 0 0 auto; width: auto; }
+  .band .checks { margin-top: 6px; gap: 12px; flex-wrap: wrap; }
+  .band.folded .checks, .band.folded .selpal { display: none; }
+  .selpal { margin: 6px 0 2px; padding: 3px 6px; }
   .shaperow[hidden], .shaperow select[hidden] { display: none; }
   h2 button.sec { display: flex; align-items: center; gap: 6px; width: 100%; background: none; border: 0; padding: 2px 0;
     color: inherit; font: inherit; text-transform: inherit; letter-spacing: inherit; cursor: pointer; text-align: left; }
@@ -156,6 +160,16 @@
   main.actual #viewbox { max-width: none; }
   #cropshade { position: absolute; pointer-events: none; box-shadow: 0 0 0 100000px var(--cut); outline: 1px solid var(--focus); }
   #cropshade[hidden] { display: none; }
+  /* Pins: each focus's and keep shape's point on the picture, dragged to move it. */
+  #pins { position: absolute; inset: 0; pointer-events: none; }
+  #pins[hidden] { display: none; }
+  .pin { position: absolute; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%; pointer-events: auto;
+    border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.6), 0 1px 4px var(--shadow); cursor: grab; touch-action: none;
+    display: flex; align-items: center; justify-content: center; font: 600 9.5px/1 system-ui, sans-serif; color: #111; user-select: none; }
+  .pin.dragging { cursor: grabbing; transform: scale(1.2); }
+  .pin.off { opacity: .45; }
+  .pin.locked { cursor: not-allowed; border-style: dashed; }
+  main #view.picking ~ #pins .pin { pointer-events: none; }
   .crop { display: grid; grid-template-columns: 52px 1fr 34px; align-items: center; gap: 4px; margin: 5px 0; }
   .crop .val { text-align: right; color: var(--focus); font-variant-numeric: tabular-nums; }
   .crop .btns { display: flex; gap: 2px; }
@@ -175,6 +189,8 @@
   .nums input { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px;
     padding: 4px 6px; font: inherit; font-variant-numeric: tabular-nums; }
   .nums [hidden] { display: none; }
+  #v3d { display: block; width: 100%; height: 240px; margin-top: 8px; border: 1px solid var(--line); border-radius: 6px;
+    background: var(--bg); cursor: grab; touch-action: none; }
   #stl_download, #stl_save { display: inline-flex; align-items: center; gap: 7px; }
   #stl_download .icon, #stl_save .icon { width: 16px; height: 16px; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; fill: none; }
   @media (max-width: 720px) {
@@ -198,7 +214,7 @@
       <button type="button" class="ghost small" id="reset_all" title="Forget the settings this page remembers and start again from the defaults (the theme and panel side stay)">Reset</button></span></h1>
     <select id="map" size="10" aria-label="Depth map (up/down arrows move to the next)"></select>
     <div class="maprow"><div class="note" id="folder"></div>
-      <button type="button" class="ghost small" id="refresh" title="Look for new depth maps in the folder">Refresh</button></div>
+      <button type="button" class="ghost small" id="refresh" title="Look for new depth maps in the folder (R)">Refresh</button></div>
 
     <h2>Palette</h2>
     <div class="swatches" id="swatches" role="group" aria-label="Palette"></div>
@@ -224,6 +240,16 @@
       <input type="range" id="contour_strength" min="0" max="1" step="0.05" value="0"></div>
     <div class="row"><label for="contour_width">Line width (px)</label><output id="contour_width_v"></output>
       <input type="range" id="contour_width" min="0.5" max="8" step="0.5" value="1"></div>
+
+    <h2>Viewpoint</h2>
+    <div class="row" title="Look from further left (◀) or right (▶): near things move against far ones, by their depth"><span class="lab"><label for="view_x">Left / right</label>
+      <button type="button" class="ghost small" id="view_reset" title="Back to the straight-on view">Reset</button></span><output id="view_x_v"></output>
+      <input type="range" id="view_x" min="-1" max="1" step="0.05" value="0"></div>
+    <div class="row" title="Look from lower down (◀) or higher up (▶)"><label for="view_y">Down / up</label><output id="view_y_v"></output>
+      <input type="range" id="view_y" min="-1" max="1" step="0.05" value="0"></div>
+    <div class="row" title="How far the viewpoint moves at the ends of the sliders: the most a pixel moves is this share of the picture's width, for the nearest and farthest depths"><label for="view_strength">Amount</label><output id="view_strength_v"></output>
+      <input type="range" id="view_strength" min="0.005" max="0.2" step="0.005" value="0.05"></div>
+    <div class="note">Focus points, keep shapes and targets stay where they were picked on the straight-on view.</div>
 
     <h2>Focus</h2>
     <select id="focus_style" aria-label="Focus style">
@@ -254,6 +280,31 @@
       <svg class="plus" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2v16M2 10h16"/></svg>Keep a shape</button></div>
     <div class="note" id="keep_note"></div>
     <div id="keeps"></div>
+
+    <h2>Selections</h2>
+    <div class="note" style="margin-top:0">A person or thing, found by its depth edges, with its own palette and cycles.</div>
+    <div class="inline"><button class="ghost" id="pick_sel" aria-pressed="false" title="Then click the picture: what's there, up to its depth edges, gets its own palette. Shift-click to keep picking.">
+      <svg class="plus" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2v16M2 10h16"/></svg>Pick a target</button></div>
+    <div class="note" id="sel_note"></div>
+    <div id="sels"></div>
+
+    <h2>Photo</h2>
+    <div class="note" id="photo_note" style="margin-top:0"></div>
+    <div class="row" title="How much of the original photo shows over the picture: 0 = none"><label for="overlay_opacity">Photo over the picture</label><output id="overlay_opacity_v"></output>
+      <input type="range" id="overlay_opacity" min="0" max="1" step="0.05" value="0"></div>
+    <div class="shaperow"><select id="overlay_mode" aria-label="How the photo blends in" title="How the photo blends in">
+        <option value="normal">Normal</option><option value="multiply">Multiply</option><option value="screen">Screen</option>
+        <option value="soft_light">Soft light</option></select>
+      <select id="overlay_where" aria-label="Where the photo shows" title="Where the photo shows (the selections are the Targets above)">
+        <option value="all">Everywhere</option><option value="selections">Only on the targets</option><option value="outside">Outside the targets</option></select></div>
+    <div class="checks"><label title="The photo in black and white"><input type="checkbox" id="overlay_grey"> Black and white</label></div>
+
+    <h2>3D view</h2>
+    <div class="note" style="margin-top:0">Where the shapes, focuses and cuts sit in the scene (or, with 3D print set to a cylinder or sphere, the picture wrapped round it): drag to turn it, scroll to zoom, right-drag to move; double-click for the start view.</div>
+    <canvas id="v3d" aria-label="3D view of the depth map with the shapes and cuts"></canvas>
+    <div class="checks"><label><input type="checkbox" id="v3d_surface" checked> Surface</label>
+      <button type="button" class="ghost small" id="v3d_home" style="margin-top:0">Start view</button></div>
+    <div class="note" id="v3d_note"></div>
 
     <h2>Quality</h2>
     <div class="row"><label for="smooth">Smoothing (px)</label><output id="smooth_v"></output>
@@ -290,12 +341,22 @@
     <select id="stl_mode" aria-label="What to print">
       <option value="relief">Relief: the depth, near raised</option>
       <option value="lithophane">Lithophane: the picture, dark = thick</option></select>
+    <select id="stl_wrap" aria-label="Flat or wrapped" style="margin-top:6px">
+      <option value="flat">Flat</option>
+      <option value="cylinder">Wrapped round a cylinder</option>
+      <option value="sphere">Wrapped round a sphere</option></select>
     <div class="nums">
-      <label for="stl_width">Width (mm)</label><input type="number" id="stl_width" min="5" max="2000" step="1" value="100">
+      <label for="stl_width" class="flat-only">Width (mm)</label><input type="number" id="stl_width" class="flat-only" min="5" max="2000" step="1" value="100">
+      <label for="stl_radius" class="wrap-only">Radius (mm)</label><input type="number" id="stl_radius" class="wrap-only" min="5" max="1000" step="1" value="40"
+        title="The radius the picture's far end (relief) or thinnest part (lithophane) sits at; the wall goes inside it">
+      <label for="stl_arc" class="wrap-only">Round the axis (°)</label><input type="number" id="stl_arc" class="wrap-only" min="10" max="360" step="5" value="360"
+        title="How far round the picture's width goes: 360 = all the way, its two ends joined">
+      <label for="stl_lat" class="sphere-only">Top to bottom (°)</label><input type="number" id="stl_lat" class="sphere-only" min="0" max="180" step="5" value="0"
+        title="How far from top to bottom the picture's height covers, centred on the equator: 180 = pole to pole; 0 = keep the picture's proportions">
       <label for="stl_px">Points across</label><input type="number" id="stl_px" min="2" max="2000" step="1" value="501"
         title="Resolution: 0.2 mm apart suits most printers; never more than the map has">
       <label for="stl_relief" class="relief-only">Relief height (mm)</label><input type="number" id="stl_relief" class="relief-only" min="0" max="500" step="0.5" value="8">
-      <label for="stl_base" class="relief-only">Base (mm)</label><input type="number" id="stl_base" class="relief-only" min="0" max="100" step="0.5" value="2">
+      <label for="stl_base" class="relief-only" id="stl_base_label">Base (mm)</label><input type="number" id="stl_base" class="relief-only" min="0" max="100" step="0.5" value="2">
       <label for="stl_min" class="litho-only">Thinnest (mm)</label><input type="number" id="stl_min" class="litho-only" min="0.2" max="20" step="0.1" value="0.8">
       <label for="stl_max" class="litho-only">Thickest (mm)</label><input type="number" id="stl_max" class="litho-only" min="0.3" max="50" step="0.1" value="3">
     </div>
@@ -309,7 +370,7 @@
   </aside>
   <main id="stage"><div class="work">
     <div id="title"></div>
-    <span id="empty">Loading…</span><div id="pair"><div id="viewbox"><img id="view" alt="" hidden><div id="cropshade" hidden></div></div><img id="view2" alt="" hidden></div>
+    <span id="empty">Loading…</span><div id="pair"><div id="viewbox"><img id="view" alt="" hidden><div id="cropshade" hidden></div><div id="pins" hidden></div></div><img id="view2" alt="" hidden></div>
     <div class="below" id="below" hidden><div class="btns"><button class="ghost" id="save_local" title="Save the full-quality result as a 16-bit PNG in the favourites folder on the machine running vathopy">
       <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 3.5h9.5L16.5 6.5v10h-12.5zM7 3.5v4h6v-4M7 16.5v-5h6v5"/></svg>Save local</button>
       <button class="ghost" id="download" title="Download the full-quality result as a 16-bit PNG">
@@ -318,7 +379,8 @@
       <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 3.5h9.5L16.5 6.5v10h-12.5zM7 3.5v4h6v-4M7 16.5v-5h6v5"/></svg>Save inverse</button>
       <button class="ghost" id="download2" hidden title="Download the inverse (right) at full quality as a 16-bit PNG, named …_inverse">
       <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 16.5h12"/></svg>Download inverse</button>
-      <button class="ghost" id="pairbtn" aria-pressed="false" title="Show the inverse (Invert flipped) beside the picture">Side by side</button></div>
+      <button class="ghost" id="pairbtn" aria-pressed="false" title="Show the inverse (Invert flipped) beside the picture">Side by side</button>
+      <button class="ghost" id="pinsbtn" aria-pressed="true" title="Show each focus's and keep shape's point on the picture (P). Drag one to move it: it takes the depth under its new place; hold Shift as you let go to keep its depth. A click opens its panel">Points</button></div>
       <div class="btns orient" role="group" aria-label="Orientation">
       <button class="ghost" id="rot_ccw" title="Turn the picture 90° counter-clockwise"><span class="glyph" aria-hidden="true">⟲</span>90°</button>
       <button class="ghost" id="rot_cw" title="Turn the picture 90° clockwise"><span class="glyph" aria-hidden="true">⟳</span>90°</button>
@@ -339,9 +401,13 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-const sliders = ["shift", "depth_scale", "cut_depth", "cut_near", "cut_softness", "cycles", "cycles_fine", "contours", "contour_strength", "contour_width", "smooth", "supersample"];
+const sliders = ["shift", "view_x", "view_y", "view_strength", "overlay_opacity", "depth_scale", "cut_depth", "cut_near", "cut_softness", "cycles", "cycles_fine", "contours", "contour_strength", "contour_width", "smooth", "supersample"];
 let palette = "FRINGE";
 const fmt = {
+  view_x: (v) => (+v === 0 ? "straight on" : `${+v > 0 ? "▶ " : "◀ "}${Math.abs(+v).toFixed(2)}`),
+  view_y: (v) => (+v === 0 ? "straight on" : `${+v > 0 ? "▲ " : "▼ "}${Math.abs(+v).toFixed(2)}`),
+  view_strength: (v) => `${(+v * 100).toFixed(1)}% of the width`,
+  overlay_opacity: (v) => (+v === 0 ? "off" : `${Math.round(+v * 100)}%`),
   depth_scale: (v) => `${(+v).toFixed(2)}×`,
   cut_depth: (v) => (+v === 0 ? "off" : +v >= 1 ? "everything" : (+v).toFixed(3)),
   cut_near: (v) => (+v === 0 ? "off" : +v >= 1 ? "everything" : (+v).toFixed(3)),
@@ -469,7 +535,7 @@ function buildPanels(o) {
     b.fill ??= "shell";
     const fold = div.querySelector(".fold"), tri = div.querySelector(".tri");
     const showFold = () => {
-      fold.textContent = (+b.depth).toFixed(3);
+      fold.textContent = o.foldText ? o.foldText(b) : (+b.depth).toFixed(3);
       tri.textContent = b.open ? "▾" : "▸";
       for (const el of [fold, tri]) {
         el.title = b.open ? "Hide the sliders" : "Show the sliders";
@@ -496,6 +562,7 @@ function buildPanels(o) {
     shape.onchange = () => { b.shape = shape.value; o.rebuild(); full(); };
     fill.onchange = () => { b.fill = fill.value; o.rebuild(); full(); };
     if (o.shapes.length < 2) div.querySelector(".shaperow").hidden = true;
+    o.extra?.(div, b, name);
     const lock = div.querySelector("input.lockbox");
     b.locked ??= false;
     lock.checked = b.locked;
@@ -515,13 +582,14 @@ function buildPanels(o) {
       row.innerHTML = `<label></label><output></output><input type="range" min="${min}" max="${max}" step="${step}">`;
       row.querySelector("label").textContent = label;
       const input = row.querySelector("input"), out = row.querySelector("output");
-      input.value = b[key]; out.textContent = bandText(key, b[key]);
-      const tip = typeof BAND_TIPS[key] === "function" ? BAND_TIPS[key](b) : BAND_TIPS[key];
+      const text = o.text || bandText, tips = o.tips || BAND_TIPS;
+      input.value = b[key]; out.textContent = text(key, b[key]);
+      const tip = typeof tips[key] === "function" ? tips[key](b) : tips[key];
       if (tip) { input.title = tip; row.querySelector("label").title = tip; }
       input.setAttribute("aria-label", `${name} ${label}`);
       input.style.accentColor = colour; out.style.color = colour;
       input.addEventListener("input", () => {
-        b[key] = +input.value; out.textContent = bandText(key, input.value);
+        b[key] = +input.value; out.textContent = text(key, input.value);
         if (key === "depth") showFold();
         o.onInput?.(key);
         preview();
@@ -541,13 +609,134 @@ function buildBands() {
                 onInput: (key) => { if (key !== "strength") setView("highlight", false); } });   // strength only shows in the result
   for (const d of $("bands").querySelectorAll(".dot")) d.title = "Its colour in the Highlights view";
   $("focus_note").textContent = bands.length ? "" : "then click the picture";
+  drawPins();
 }
 // Keep shapes: places the deletion slab leaves alone.
 let keeps = [];
+const KEEP_COLOUR = "#4fb3a9";
 function buildKeeps() {
-  buildPanels({ box: "keeps", list: keeps, title: "Keep", colour: () => "#4fb3a9", sliders: KEEP_SLIDERS,
+  buildPanels({ box: "keeps", list: keeps, title: "Keep", colour: () => KEEP_COLOUR, sliders: KEEP_SLIDERS,
                 defaults: KEEP_DEFAULTS, shapes: ["ellipsoid", "box", "cylinder", "cone"], fill: false, rebuild: buildKeeps });
+  drawPins();
 }
+
+// Selections: a person or thing grown from a clicked point up to its depth edges, with its own palette.
+let sels = [];
+const SEL_COLOUR = "#b07cff";
+const SEL_SLIDERS = [["step", "Edge", 0.0005, 0.03, 0.0005], ["range", "Depth range", 0, 0.5, 0.005],
+                     ["grow", "Grow (px)", 0, 10, 0.5], ["softness", "Soft edge (px)", 0, 10, 0.5], ["cycles", "Cycles", 0, 10, 0.25]];
+const SEL_DEFAULTS = { step: 0.003, range: 0, grow: 1, softness: 1, cycles: 0 };
+const SEL_TIPS = {
+  step: "How big a depth step stops it, from one pixel to the next: lower stops at fainter edges (try lower if it spills onto what's behind), higher crosses more",
+  range: "Also keep it within this much depth of the point you clicked (off = no limit)",
+  grow: "Widen it by this many pixels, to take in the soft pixels along its edge",
+  softness: "Feather its edge over this many pixels",
+  cycles: "Its own fringe cycles; 0 = the same as the picture",
+};
+const selText = (key, v) => (key === "step" ? (+v).toFixed(4) : key === "range" ? (+v === 0 ? "off" : (+v).toFixed(3))
+  : key === "cycles" ? (+v === 0 ? "as the picture" : (+v).toString()) : `${+v} px`);
+function buildSels() {
+  buildPanels({ box: "sels", list: sels, title: "Target", colour: () => SEL_COLOUR, sliders: SEL_SLIDERS, defaults: SEL_DEFAULTS,
+                shapes: ["plane"], fill: false, rebuild: buildSels, text: selText, tips: SEL_TIPS,
+                foldText: () => "",
+                extra: (div, b, name) => {
+                  const pal = document.createElement("select");
+                  pal.className = "selpal"; pal.setAttribute("aria-label", `${name} palette`);
+                  pal.add(new Option("Same palette as the picture", ""));
+                  for (const p of paletteList) pal.add(new Option(p.label, p.key));
+                  pal.value = b.palette || "";
+                  pal.onchange = () => { b.palette = pal.value; buildSels(); full(); };
+                  const checks = document.createElement("div");
+                  checks.className = "checks";
+                  for (const [key, label, tip] of [["palette_invert", "Reverse palette", "Run its palette the other way"],
+                                                   ["floors", "Stop at floors", "Don't spread onto ground that comes nearer going down the picture (under someone's feet)"],
+                                                   ["invert", "Everything else", "Use its palette everywhere except here"]]) {
+                    const l = document.createElement("label");
+                    l.title = tip;
+                    l.innerHTML = `<input type="checkbox"> ${label}`;
+                    const c = l.querySelector("input");
+                    c.checked = !!b[key];
+                    c.onchange = () => { b[key] = c.checked; full(); };
+                    checks.appendChild(l);
+                  }
+                  div.querySelector(".shaperow").after(pal, checks);
+                } });
+  drawPins();
+}
+
+// Pins: a dot on the picture at each focus's and keep shape's point (F1…, K1…). Dragging one moves its
+// point; on release it takes the depth under the new place (Shift held: keeps its depth) and renders.
+// A click without a drag opens its panel. Locked ones don't move. Points are kept in the map's own
+// coordinates; shownPoint/mapPoint translate for a turned or mirrored picture.
+let pinsOn = true, pinDrag = false;                 // pinDrag: a pin is being dragged (renders mustn't replace it)
+function shownPoint(x, y) {                       // map -> picture: the inverse of mapPoint
+  for (let i = 0; i < orientation.turns; i++) [x, y] = [y, 1 - x];
+  if (orientation.mirror) x = 1 - x;
+  return [x, y];
+}
+function drawPins() {
+  if (pinDrag) return;
+  const box = $("pins");
+  box.replaceChildren();
+  box.hidden = !pinsOn || $("view").hidden;
+  if (box.hidden) return;
+  const lists = [[bands, "F", (i) => FOCUS_COLOURS[i % FOCUS_COLOURS.length], "bands", buildBands, "Focus", true],
+                 [keeps, "K", () => KEEP_COLOUR, "keeps", buildKeeps, "Keep", true],
+                 [sels, "T", () => SEL_COLOUR, "sels", buildSels, "Target", false]];
+  for (const [list, tag, colour, panelBox, rebuild, title, hasDepth] of lists) list.forEach((b, i) => {
+    if (b.x == null || b.y == null) return;      // a focus from a Blender look: no point on the picture
+    const pin = document.createElement("div");
+    pin.className = "pin" + (b.enabled === false ? " off" : "") + (b.locked ? " locked" : "");
+    pin.textContent = tag + (i + 1);
+    pin.style.background = colour(i);
+    pin.title = `${title} ${i + 1}` + (b.locked ? " (locked)" : hasDepth ? ": drag to move it; Shift as you let go keeps its depth; click to open its panel"
+      : ": drag to grow it from another point; click to open its panel");
+    const place = (x, y) => { const [sx, sy] = shownPoint(x, y); pin.style.left = `${100 * sx}%`; pin.style.top = `${100 * sy}%`; };
+    place(b.x, b.y);
+    pin.addEventListener("pointerdown", (ev) => {
+      ev.preventDefault(); ev.stopPropagation();
+      pin.setPointerCapture(ev.pointerId);
+      const x0 = ev.clientX, y0 = ev.clientY, orig = [b.x, b.y];
+      let moved = false;
+      pinDrag = true;
+      const at = (e) => {
+        const r = $("view").getBoundingClientRect();
+        return mapPoint(Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)));
+      };
+      const move = (e) => {
+        if (!moved && Math.hypot(e.clientX - x0, e.clientY - y0) < 4) return;
+        if (b.locked) return;
+        moved = true; pin.classList.add("dragging");
+        [b.x, b.y] = at(e).map((v) => +v.toFixed(4));
+        place(b.x, b.y);
+        preview();
+      };
+      const up = async (e) => {
+        pin.removeEventListener("pointermove", move); pin.removeEventListener("pointerup", up); pin.removeEventListener("pointercancel", up);
+        pin.classList.remove("dragging");
+        pinDrag = false;
+        if (!moved) {                             // a click: open this one's panel
+          b.open = true; rebuild();
+          $(panelBox).children[i]?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+          return;
+        }
+        if (e.type === "pointercancel") { [b.x, b.y] = orig; rebuild(); full(); return; }
+        [b.x, b.y] = at(e).map((v) => +v.toFixed(4));    // where it was let go (moves can be coalesced)
+        if (hasDepth && !e.shiftKey) {
+          try {
+            const j = await getJSON("/api/depth_at", { map: $("map").value, settings: settings(), x: b.x, y: b.y });
+            b.depth = +j.depth.toFixed(3);
+          } catch (err) { $("status").textContent = "depth failed: " + err.message; }
+        }
+        rebuild(); full();
+      };
+      pin.addEventListener("pointermove", move); pin.addEventListener("pointerup", up); pin.addEventListener("pointercancel", up);
+    });
+    box.appendChild(pin);
+  });
+}
+function setPins(on) { pinsOn = on; $("pinsbtn").setAttribute("aria-pressed", on); drawPins(); savePage(); }
+$("pinsbtn").onclick = () => setPins(!pinsOn);
 
 // Cycles as rendered: the 0.25-step slider plus the fine one (Cycles at 0 stays off).
 function cyclesTotal() {
@@ -562,7 +751,8 @@ function setCycles(c) {
 }
 function settings() {
   const s = { palette, invert: $("invert").checked, equalize: $("equalize").checked,
-              focus_style: $("focus_style").value, focus: bands, keep: keeps, cut_fill: $("cut_fill").value };
+              focus_style: $("focus_style").value, focus: bands, keep: keeps, selections: sels, cut_fill: $("cut_fill").value,
+              overlay_mode: $("overlay_mode").value, overlay_where: $("overlay_where").value, overlay_grey: $("overlay_grey").checked };
   for (const k of sliders) s[k] = parseFloat($(k).value);
   s.cycles = cyclesTotal(); delete s.cycles_fine;
   s.orientation = { ...orientation };
@@ -590,6 +780,7 @@ async function fetchRender(s, quality) {
 }
 async function render(quality) {
   if (!$("map").value) return;
+  update3d();
   if (quality === "preview" && previewBusy) { previewWaiting = true; return; }
   const id = ++reqId;
   if (quality === "full") fullAskedId = id; else previewBusy = true;
@@ -609,7 +800,7 @@ async function render(quality) {
     const [mw, mh] = (r.headers.get("X-Map-Size") || "").split("x").map(Number);
     if (mw && mh) { mapSize = { w: mw, h: mh }; clampCrop(); }
     $("view").src = lastURL; $("view").hidden = false; $("empty").hidden = true; $("below").hidden = false;
-    fitView();
+    fitView(); drawPins();
     $("status").textContent = `${view === "highlight" ? "highlights · " : ""}${withPair ? "with inverse · " : ""}${quality} · ${r.headers.get("X-Size")} · ${r.headers.get("X-Render-Ms")} ms`;
   } catch (e) {
     $("status").textContent = "error: " + e.message;
@@ -710,10 +901,10 @@ function fillMaps(maps) {
 async function init() {
   const [maps, pals] = await Promise.all([getJSON("/api/maps"), getJSON("/api/palettes")]);
   fillMaps(maps);
-  showTitle();
+  showTitle(); showPhoto();
   buildSwatches(pals);
   addSteppers(document);
-  buildBands(); buildKeeps();
+  buildBands(); buildKeeps(); buildSels();
   showValues();
   await loadLooks();
   if (!maps.maps.length) $("empty").textContent = "No depth maps (.exr) in " + maps.folder;
@@ -724,13 +915,13 @@ async function init() {
 // the settings in this browser; loading the page puts them back. Focuses and keep shapes come back
 // only on the same map (their depths belong to it).
 const PAGE_KEY = "vathopy.page";
-const STL_FIELDS = ["stl_mode", "stl_width", "stl_px", "stl_relief", "stl_base", "stl_min", "stl_max", "stl_invert", "stl_crop"];
+const STL_FIELDS = ["stl_mode", "stl_wrap", "stl_radius", "stl_arc", "stl_lat", "stl_width", "stl_px", "stl_relief", "stl_base", "stl_min", "stl_max", "stl_invert", "stl_crop"];
 let restoring = false;
 function savePage() {
   if (restoring || !$("map").value) return;
   const stl = Object.fromEntries(STL_FIELDS.map((id) => [id, $(id).type === "checkbox" ? $(id).checked : $(id).value]));
   const page = { map: $("map").value, settings: settings(), name: $("name").value, crop, pair, stl,
-                 cropLock: $("crop_lock").checked, fineLock: $("cycles_fine_lock").checked };
+                 cropLock: $("crop_lock").checked, fineLock: $("cycles_fine_lock").checked, pins: pinsOn };
   try { localStorage.setItem(PAGE_KEY, JSON.stringify(page)); } catch { /* not remembered */ }
 }
 function restorePage(maps) {
@@ -740,11 +931,12 @@ function restorePage(maps) {
   restoring = true;
   try {
     const same = maps.maps.includes(p.map);
-    if (same) { $("map").value = p.map; showTitle(); }
+    if (same) { $("map").value = p.map; showTitle(); showPhoto(); }
     $("crop_lock").checked = !!p.cropLock;
     if (same || p.cropLock) Object.assign(crop, p.crop || {});
     $("cycles_fine_lock").checked = !!p.fineLock;
     $("cycles_fine_lock").dispatchEvent(new Event("change"));
+    if (p.pins === false) { pinsOn = false; $("pinsbtn").setAttribute("aria-pressed", false); }
     if (p.pair) { pair = true; $("pairbtn").setAttribute("aria-pressed", true); $("save_local2").hidden = $("download2").hidden = false; }
     for (const [id, v] of Object.entries(p.stl || {})) {
       const el = $(id);
@@ -752,7 +944,7 @@ function restorePage(maps) {
     }
     showStlMode();
     restoring = false;
-    applySettings(same ? p.settings : { ...p.settings, focus: [], keep: [] }, p.name || "");   // renders, and saves
+    applySettings(same ? p.settings : { ...p.settings, focus: [], keep: [], selections: [] }, p.name || "");   // renders, and saves
     showCrop();
     return true;
   } catch (e) {                                       // e.g. a palette that's gone: start as usual
@@ -776,6 +968,7 @@ $("cycles_fine_lock").addEventListener("change", () => {
     el.disabled = $("cycles_fine_lock").checked;
 });
 $("shift").addEventListener("input", drawSwatchBars);
+$("view_reset").onclick = () => { if (+$("view_x").value || +$("view_y").value) { $("view_x").value = $("view_y").value = 0; showValues(); full(); } };
 $("shift_reset").onclick = () => { if (+$("shift").value !== 0) { $("shift").value = 0; showValues(); drawSwatchBars(); full(); } };
 for (const k of sliders) {
   $(k).addEventListener("input", () => { showValues(); if (k !== "supersample") preview(); });
@@ -788,8 +981,8 @@ $("map").addEventListener("change", () => {
   if (!$("crop_lock").checked) for (const k of CROP_SIDES) crop[k] = 0;   // a locked crop is kept (fitted to the new map)
   setOrientation({}, false);                        // a new map starts the right way up
   mapSize = null; showCrop();                       // the new map's size comes with its render
-  showTitle();
-  bands = []; buildBands(); keeps = []; buildKeeps(); setPicking(false); setView("result", false);   // their depths belong to the old map
+  showTitle(); showPhoto();
+  bands = []; buildBands(); keeps = []; buildKeeps(); sels = []; buildSels(); setPicking(false); setView("result", false);   // their depths belong to the old map
   full();
 });
 $("refresh").addEventListener("click", async () => {
@@ -800,7 +993,7 @@ $("refresh").addEventListener("click", async () => {
     const n = maps.maps.length - before;
     $("refresh").textContent = n > 0 ? `${n} new` : "Refreshed";
     setTimeout(() => { $("refresh").textContent = "Refresh"; }, 1500);
-    if (!maps.maps.length) { $("view").hidden = true; $("below").hidden = true; $("empty").hidden = false; $("empty").textContent = "No depth maps (.exr) in " + maps.folder; }
+    if (!maps.maps.length) { $("view").hidden = true; $("below").hidden = true; $("empty").hidden = false; $("empty").textContent = "No depth maps (.exr) in " + maps.folder; drawPins(); }
     else if (changed) $("map").dispatchEvent(new Event("change"));
     else full();                                    // the same map may have been rerun
   } catch (e) { $("refresh").textContent = "Failed"; setTimeout(() => { $("refresh").textContent = "Refresh"; }, 2500); }
@@ -816,6 +1009,17 @@ const onPicture = async (ev) => {
   const r = ev.currentTarget.getBoundingClientRect();     // either picture: same map, same place
   const [x, y] = mapPoint((ev.clientX - r.left) / r.width, (ev.clientY - r.top) / r.height);
   if (!ev.shiftKey) setPicking(false);
+  if (target === "select") {                       // no depth needed: it grows from the point at render time
+    if (sels.length >= MAX_FOCUS) { $("sel_note").textContent = `${MAX_FOCUS} is the most: remove one first`; return; }
+    if (sels.length >= 3) for (const o of sels) o.open = false;
+    const other = ["COPPER_TO_BLACK", "ICE_TO_BLACK", "MAGMA"].map((k) => paletteList.find((p) => p.key === k && k !== palette))
+      .find(Boolean) || paletteList[0];                // a colour that stands out from the picture's palette
+    sels.push({ x: +x.toFixed(4), y: +y.toFixed(4), ...SEL_DEFAULTS, palette: other.key, palette_invert: false,
+                floors: false, invert: false, enabled: true, open: true });
+    $("sel_note").textContent = "";
+    buildSels(); full();
+    return;
+  }
   try {
     const j = await getJSON("/api/depth_at", { map: $("map").value, settings: settings(), x, y });
     if (target === "keep") {
@@ -842,11 +1046,25 @@ function setPicking(on, target = "focus") {
   picking = on ? target : false;
   $("pick").setAttribute("aria-pressed", picking === "focus");
   $("pick_keep").setAttribute("aria-pressed", picking === "keep");
+  $("pick_sel").setAttribute("aria-pressed", picking === "select");
   for (const id of ["view", "view2"]) $(id).classList.toggle("picking", !!picking);
 }
 $("pick").onclick = () => setPicking(picking !== "focus", "focus");
 $("pick_keep").onclick = () => setPicking(picking !== "keep", "keep");
+$("pick_sel").onclick = () => setPicking(picking !== "select", "select");
 $("cut_fill").addEventListener("change", full);
+for (const id of ["overlay_mode", "overlay_where", "overlay_grey"]) $(id).addEventListener("change", full);
+// Which photo the map was made from (found by its name in the photos folder), for Photo over the picture.
+async function showPhoto() {
+  const map = $("map").value;
+  if (!map) { $("photo_note").textContent = ""; return; }
+  try {
+    const j = await getJSON("/api/photo", { map });
+    if (map !== $("map").value) return;
+    $("photo_note").textContent = j.photo ? `From ${j.photo}` : `No photo named like this map in ${j.folder}`;
+    $("overlay_opacity").disabled = !j.photo;
+  } catch (e) { $("photo_note").textContent = "photo lookup failed: " + e.message; }
+}
 $("focus_style").addEventListener("change", full);
 for (const b of $("tabs").querySelectorAll("button")) b.onclick = () => setView(b.dataset.view);
 document.addEventListener("keydown", (ev) => {
@@ -854,6 +1072,11 @@ document.addEventListener("keydown", (ev) => {
   if ((ev.key === "t" || ev.key === "T") && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !typing && bands.length)
     setView(view === "result" ? "highlight" : "result");
   if ((ev.key === "z" || ev.key === "Z") && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !typing) setLens(!lensOn);
+  if ((ev.key === "p" || ev.key === "P") && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !typing) setPins(!pinsOn);
+  if ((ev.key === "r" || ev.key === "R") && !ev.ctrlKey && !ev.metaKey && !ev.altKey && (!typing || el === $("map"))) {
+    ev.preventDefault();                             // in the map list: refresh rather than jump to a name starting with r
+    $("refresh").click();
+  }
 });
 
 // Typed values: click a slider's value to type one instead. Enter (or leaving the box) sets it, within
@@ -952,7 +1175,10 @@ function applySettings(s, name) {
   $("focus_style").value = s.focus_style || "off";
   bands = (s.focus || []).map((b) => ({ ...b, open: s.focus.length <= 3 })); buildBands(); setView("result", false);
   keeps = (s.keep || []).map((k) => ({ ...k, open: s.keep.length <= 3 })); buildKeeps();
+  sels = (s.selections || []).map((k) => ({ ...k, open: s.selections.length <= 3 })); buildSels();
   $("cut_fill").value = s.cut_fill || "black";
+  $("overlay_mode").value = s.overlay_mode || "normal"; $("overlay_where").value = s.overlay_where || "all";
+  $("overlay_grey").checked = !!s.overlay_grey;
   setOrientation(s.orientation || {}, false);
   showValues(); if (name) $("name").value = name; full();
 }
@@ -1083,7 +1309,7 @@ function setOrientation(o, render = true) {
   for (const id of ["rot_ccw", "rot_cw", "flip_lr", "flip_ud", "orient_reset"])
     $(id).setAttribute("aria-label", $(id).title + (orientation.turns || orientation.mirror
       ? ` (now ${orientation.turns * 90}° counter-clockwise${orientation.mirror ? ", mirrored" : ""})` : ""));
-  showCrop();
+  showCrop(); drawPins();
   if (render) full();
 }
 const turn = (d) => setOrientation({ turns: orientation.turns + (orientation.mirror ? -d : d), mirror: orientation.mirror });
@@ -1221,17 +1447,24 @@ showTheme();
 
 // 3D print: an STL of the depth (relief) or the picture (lithophane), cropped and turned as shown.
 function showStlMode() {
-  const litho = $("stl_mode").value === "lithophane";
+  const litho = $("stl_mode").value === "lithophane", wrap = $("stl_wrap").value;
   for (const el of document.querySelectorAll(".relief-only")) el.hidden = litho;
   for (const el of document.querySelectorAll(".litho-only")) el.hidden = !litho;
+  for (const el of document.querySelectorAll(".flat-only")) el.hidden = wrap !== "flat";
+  for (const el of document.querySelectorAll(".wrap-only")) el.hidden = wrap === "flat";
+  for (const el of document.querySelectorAll(".sphere-only")) el.hidden = wrap !== "sphere";
+  $("stl_base_label").textContent = wrap === "flat" ? "Base (mm)" : "Wall (mm)";
 }
-$("stl_mode").onchange = showStlMode;
+$("stl_mode").onchange = () => { showStlMode(); update3d(); };
+$("stl_wrap").onchange = () => { showStlMode(); update3d(); };
+for (const id of ["stl_radius", "stl_arc", "stl_lat", "stl_relief", "stl_invert"]) $(id).addEventListener("change", update3d);
 showStlMode();
 function stlRequest(save) {
   return { map: $("map").value, settings: settings(), name: $("name").value, mode: $("stl_mode").value,
            width_mm: +$("stl_width").value, px: +$("stl_px").value, relief_mm: +$("stl_relief").value,
            base_mm: +$("stl_base").value, min_mm: +$("stl_min").value, max_mm: +$("stl_max").value,
-           invert: $("stl_invert").checked, crop: $("stl_crop").checked ? crop : null, save };
+           invert: $("stl_invert").checked, crop: $("stl_crop").checked ? crop : null, save,
+           wrap: $("stl_wrap").value, radius_mm: +$("stl_radius").value, arc_deg: +$("stl_arc").value, lat_deg: +$("stl_lat").value };
 }
 $("stl_save").onclick = async () => {
   const btn = $("stl_save");
@@ -1274,6 +1507,32 @@ function setSide(right) {
 $("side").onclick = () => setSide(!document.body.classList.contains("side-right"));
 try { setSide(sessionStorage.getItem(SIDE_KEY) === "right"); } catch { setSide(false); }
 
+// The 3D view (static/view3d.js, three.js): loaded the first time its section is open, then kept up
+// to date with every render request.
+let view3d = null, view3dLoading = false;
+const section3dOpen = () => !$("v3d").closest(".section")?.hidden;
+async function update3d() {
+  if (!section3dOpen() || view3dLoading) return;
+  if (!view3d) {
+    view3dLoading = true;
+    try {
+      const m = await import("/static/view3d.js");
+      view3d = m.start($("v3d"), { settings, getJSON, map: () => $("map").value, bands: () => bands, keeps: () => keeps,
+                                   focusColour: (i) => FOCUS_COLOURS[i % FOCUS_COLOURS.length],
+                                   depthScale: () => +$("depth_scale").value, showSurface: () => $("v3d_surface").checked,
+                                   picture: () => $("view"),
+                                   wrap: () => ({ shape: $("stl_wrap").value, radius: +$("stl_radius").value, arc: +$("stl_arc").value,
+                                                  lat: +$("stl_lat").value, relief: $("stl_mode").value === "lithophane" ? 0 : +$("stl_relief").value,
+                                                  invert: $("stl_invert").checked }) });
+    } catch (e) { $("v3d_note").textContent = "3D view failed: " + e.message; return; }
+    finally { view3dLoading = false; }
+  }
+  view3d.update();
+}
+$("v3d_surface").addEventListener("change", update3d);
+$("view").addEventListener("load", () => { if (view3d && $("stl_wrap").value !== "flat") view3d.update(); });   // its texture
+$("v3d_home").onclick = () => view3d?.home();
+
 // Collapsible sidebar sections: a ▾/▸ on the left of each heading, remembered in this browser.
 const COLLAPSED_KEY = "vathopy.collapsed";
 let collapsed = {};
@@ -1300,6 +1559,7 @@ for (const h of document.querySelectorAll("aside h2")) {
     collapsed[name] = !collapsed[name];
     try { localStorage.setItem(COLLAPSED_KEY, JSON.stringify(collapsed)); } catch { /* not remembered */ }
     show();
+    if (name === "3D view") update3d();
   };
   show();
 }

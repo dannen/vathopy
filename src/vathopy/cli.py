@@ -221,6 +221,7 @@ def cmd_render(a):
         suffix += "_autocontours" if a.contours == "auto" else f"_{a.contours:g}contours"
     if a.focus:
         suffix += "_focus"
+    photo = VIO.read_photo(a.photo) if a.photo else None
     for src in a.inputs:
         depth, info = VIO.load_depth(src)
         if info["eight_bit"]:
@@ -229,7 +230,11 @@ def cmd_render(a):
         lk, auto_note = _resolve_auto(a, lk_args, depth)
         if auto_note:
             print(f"{src}: {auto_note}")
-        out, rinfo = render(depth, lk)
+        if a.overlay is not None:
+            lk = LOOK.normalise({**lk, "overlay": {**(lk["overlay"] or LOOK.DEFAULT_OVERLAY), "opacity": a.overlay}})
+        if lk["overlay"] is not None and lk["overlay"]["opacity"] > 0 and photo is None:
+            print(f"{src}: the look has a photo overlay; give the photo with --photo to see it", file=sys.stderr)
+        out, rinfo = render(depth, lk, photo)
         dst = _out_path(src, a.output, len(a.inputs), suffix, ext)
         if a.format == "exr":
             VIO.write_exr(out, dst)
@@ -254,7 +259,8 @@ def cmd_relief(a):
     for src in a.inputs:
         depth, _ = VIO.load_depth(src)                                  # rows bottom-up
         w_src = depth.shape[1] if not lk["orientation"]["turns"] % 2 else depth.shape[0]
-        cols = min(a.px or round(a.width_mm / 0.2) + 1, w_src)          # 0.2 mm a point; never more than the map has
+        width_mm = a.width_mm if a.wrap == "flat" else a.radius_mm * np.radians(a.arc_deg)   # wrapped: round the outside
+        cols = min(a.px or round(width_mm / 0.2) + 1, w_src)            # 0.2 mm a point; never more than the map has
         if a.lithophane:
             out, _ = render(depth, lk)                                  # the picture, turned as the look says
             srgb = np.clip(VIO.srgb_oetf(out[::-1, :, :3]), 0.0, 1.0)
@@ -265,11 +271,17 @@ def cmd_relief(a):
                 depth = smooth_depth(depth, sm)
             top = mesh.relief_heights(orient(depth[::-1], lk["orientation"]), cols, a.relief_mm, a.invert)
             base = a.base_mm
-        px_mm = a.width_mm / (top.shape[1] - 1)
-        verts, faces = mesh.heightfield_mesh(top, px_mm, base)
-        dst = _out_path(src, a.output, len(a.inputs), "_lithophane" if a.lithophane else "_relief", ".stl")
+        if a.wrap == "cylinder":                                        # --base-mm is the wall behind the relief
+            verts, faces = mesh.cylinder_mesh(top, a.radius_mm, base, a.arc_deg)
+        elif a.wrap == "sphere":
+            verts, faces = mesh.sphere_mesh(top, a.radius_mm, base, a.arc_deg, a.lat_deg)
+        else:
+            verts, faces = mesh.heightfield_mesh(top, a.width_mm / (top.shape[1] - 1), base)
+        suffix = ("_lithophane" if a.lithophane else "_relief") + ("" if a.wrap == "flat" else f"_{a.wrap}")
+        dst = _out_path(src, a.output, len(a.inputs), suffix, ".stl")
         mesh.write_stl(dst, verts, faces)
-        print(f"{src} -> {dst}  ({a.width_mm:g} x {px_mm * (top.shape[0] - 1):.1f} x {float(verts[:, 2].max()):.1f} mm, "
+        ext = verts.max(axis=0) - verts.min(axis=0)
+        print(f"{src} -> {dst}  ({ext[0]:.1f} x {ext[1]:.1f} x {ext[2]:.1f} mm, "
               f"{top.shape[1]}x{top.shape[0]} points, {len(faces):,} triangles, {os.path.getsize(dst) / 1e6:.1f} MB)")
 
 
@@ -380,6 +392,9 @@ def main(argv=None):
                    help="a shape the cut leaves alone: DEPTH or @X,Y, then shape=ellipsoid|box|cylinder|cone, "
                         "size= (or size_x/y/z=), length=, cone=, lean=, angle=, softness=; sizes are fractions of "
                         "the picture's width. Repeatable; without --cut, everything else is removed")
+    r.add_argument("--photo", metavar="FILE", help="the photo the depth map was made from, for the look's overlay "
+                   "(resized to the map; give one depth map per run)")
+    r.add_argument("--overlay", type=float, metavar="A", help="blend the --photo over the picture at opacity A (0-1)")
     r.add_argument("--focus-strength", type=float, default=1.0, metavar="K",
                    help="-1 to 1 (default 1) for every --focus without its own STRENGTH: 1 lifts the "
                         "focus to white, -1 sinks it to black (use with --base WHITE for black on white)")
@@ -396,7 +411,16 @@ def main(argv=None):
                     help="points across the width (default one every 0.2 mm, at most the map's own pixels)")
     rl.add_argument("--relief-mm", type=float, default=8.0, metavar="MM",
                     help="height from the farthest to the nearest point (default 8)")
-    rl.add_argument("--base-mm", type=float, default=2.0, metavar="MM", help="solid base under the relief (default 2)")
+    rl.add_argument("--base-mm", type=float, default=2.0, metavar="MM",
+                    help="solid base under the relief, or with --wrap the wall behind it (default 2)")
+    rl.add_argument("--wrap", choices=("flat", "cylinder", "sphere"), default="flat",
+                    help="wrap the picture round a cylinder (its width round the axis, ends joined at 360) or a sphere")
+    rl.add_argument("--radius-mm", type=float, default=40.0, metavar="MM",
+                    help="--wrap: the radius the relief stands out from (default 40); the wall is inside it")
+    rl.add_argument("--arc-deg", type=float, default=360.0, metavar="DEG",
+                    help="--wrap: how far round the picture's width goes (default 360, all the way)")
+    rl.add_argument("--lat-deg", type=float, metavar="DEG",
+                    help="--wrap sphere: how far from top to bottom (180 = pole to pole; default the picture's proportions)")
     rl.add_argument("--invert", action="store_true", help="far raised instead of near (a mould)")
     rl.add_argument("--smooth-depth", type=float, metavar="R", help="smooth the depth first (px; default the look's)")
     rl.add_argument("--lithophane", action="store_true",
@@ -420,8 +444,11 @@ def main(argv=None):
     g.add_argument("--host", default="127.0.0.1", help="listen address (default 127.0.0.1; no authentication)")
     g.add_argument("--port", type=int, default=8770, help="port (default 8770)")
     g.add_argument("--preview-size", type=int, default=1280, help="max preview size in px while dragging (default 1280)")
+    g.add_argument("--photos", metavar="DIR",
+                   help="where the photos the depth maps were made from are (searched with subfolders, for Photo overlay); "
+                        "default: the folder 'input' beside the depth-map folder")
     g.set_defaults(fn=lambda a: __import__("vathopy.gui", fromlist=["serve"]).serve(
-        a.depth_dir, a.favourites, a.host, a.port, a.preview_size, a.palettes))
+        a.depth_dir, a.favourites, a.host, a.port, a.preview_size, a.palettes, a.photos))
 
     i = sub.add_parser("init", help="write a starter look JSON")
     i.add_argument("path")
