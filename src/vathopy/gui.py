@@ -195,7 +195,8 @@ def look_from_settings(s, preview=False):
                          "where": s.get("overlay_where") or "all", "grey": bool(s.get("overlay_grey")),
                          "invert": bool(s.get("overlay_invert")), "enabled": bool(s.get("overlay_on", True))}
     if float(s.get("exaggerate", 0) or 0) > 0:
-        lk["exaggerate"] = {"amount": float(s["exaggerate"]), "size": float(s.get("exaggerate_size", 0.02) or 0.02)}
+        lk["exaggerate"] = {"amount": float(s["exaggerate"]), "size": float(s.get("exaggerate_size", 0.02) or 0.02),
+                            "enabled": bool(s.get("exaggerate_on", True))}
     o = s.get("orientation") or {}
     lk["orientation"] = {"turns": int(o.get("turns", 0) or 0), "mirror": bool(o.get("mirror"))}
     style = s.get("focus_style", "off")
@@ -253,7 +254,8 @@ def _overlay_settings(lk):
             "overlay_opacity": float(ov.get("opacity", 0.0)), "overlay_mode": ov.get("mode", "normal"),
             "overlay_where": ov.get("where", "all"), "overlay_grey": bool(ov.get("grey")),
             "overlay_invert": bool(ov.get("invert")), "overlay_on": bool(ov.get("enabled", True)),
-            "exaggerate": float(ex.get("amount", 0.0)), "exaggerate_size": float(ex.get("size", 0.02))}
+            "exaggerate": float(ex.get("amount", 0.0)), "exaggerate_size": float(ex.get("size", 0.02)),
+            "exaggerate_on": bool(ex.get("enabled", True))}
 
 
 def _slider_lean_angle(lean, angle):
@@ -597,7 +599,9 @@ def make_handler(maps, favourites, preview_size, auth=None, palettes_dir=None):
                 raise ValueError("wrap must be flat, cylinder or sphere")
             radius, arc = float(req.get("radius_mm", 40)), float(req.get("arc_deg", 360))
             width_mm = float(req.get("width_mm", 100)) if wrap == "flat" else radius * np.radians(arc)   # round the outside
-            cols = td.shape[1] if req.get("px") == "all" else min(int(req.get("px") or round(width_mm / 0.2) + 1), td.shape[1])
+            px = req.get("px")                           # a number, or "all" / "half" of the map's own pixels
+            cols = (td.shape[1] if px == "all" else max(2, td.shape[1] // 2) if px == "half"
+                    else min(int(px or round(width_mm / 0.2) + 1), td.shape[1]))
             if req.get("mode") == "lithophane":
                 lo, hi = float(req.get("min_mm", 0.8)), float(req.get("max_mm", 3.0))
                 top, base = mesh.lithophane_heights(td, cols, lo, hi), lo

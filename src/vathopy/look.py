@@ -87,7 +87,8 @@ extracted from Blender render exactly as before):
   ``"fill"`` keeps the framing and fills them from the nearest pixels instead. It's applied to the depth map (and
   the overlay photo) first, so everything else follows the new view; focus points, keep shapes and
   selections stay where they were picked, in the map's own coordinates.
-* ``exaggerate`` (vathopy only): more pronounced relief, ``{"amount": a, "size": s}``: each pixel's
+* ``exaggerate`` (vathopy only): more pronounced relief, ``{"amount": a, "size": s, "enabled": true}``
+  (``enabled`` false keeps the settings but leaves the depth as it is): each pixel's
   difference from its smoothed surroundings (over ``s`` x the picture's width, 0.002-0.2) is
   multiplied by 1 + ``a`` (0-10), so bumps, folds and faces stand out more; the steps between things
   stay as they are. After ``smooth_depth``; the 3D print (``vathopy relief``) uses it too.
@@ -145,7 +146,7 @@ OVERLAY_MODES = ("normal", "multiply", "screen", "soft_light")
 
 DEFAULT_VIEW_SHIFT = {"x": 0.0, "y": 0.0, "strength": 0.05, "pivot": 0.5, "edges": "zoom"}
 
-DEFAULT_EXAGGERATE = {"amount": 1.0, "size": 0.02}
+DEFAULT_EXAGGERATE = {"amount": 1.0, "size": 0.02, "enabled": True}
 
 DEFAULT_CONTOURS = {"cycles": 4.0, "strength": 0.85, "width": 2.0}
 
@@ -324,7 +325,7 @@ def normalise(look):
             raise ValueError("view_shift: x and y -1 to 1, strength 0-0.5, pivot 0-1, edges zoom or fill")
     if lk["exaggerate"] is not None:
         ex = lk["exaggerate"] = _merge(DEFAULT_EXAGGERATE, lk["exaggerate"], "exaggerate")
-        ex["amount"], ex["size"] = float(ex["amount"]), float(ex["size"])
+        ex["amount"], ex["size"], ex["enabled"] = float(ex["amount"]), float(ex["size"]), bool(ex["enabled"])
         if not (0.0 <= ex["amount"] <= 10.0 and 0.002 <= ex["size"] <= 0.2):
             raise ValueError("exaggerate: amount 0-10, size 0.002-0.2 of the width")
     if lk["tilt"] is not None:

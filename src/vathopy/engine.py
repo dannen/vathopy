@@ -1027,7 +1027,7 @@ def exaggerate(depth, ex):
     by 1 + ``amount``, so bumps, folds and faces stand out more while the steps between things (bigger
     than EXAGGERATE_EDGE of the depth range) stay as they are, without halos. It's scaled back into the
     depth's own range."""
-    if ex is None or ex["amount"] <= 0:
+    if ex is None or ex["amount"] <= 0 or not ex.get("enabled", True):
         return depth
     import cv2
     d = np.ascontiguousarray(depth, dtype=np.float32)

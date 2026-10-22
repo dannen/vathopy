@@ -222,7 +222,7 @@ selections stay where they were picked.
 
 ### Exaggerated depth
 
-`exaggerate` makes the relief more pronounced: `{"amount": 0-10, "size": 0.002-0.2}`. Each pixel's difference
+`exaggerate` makes the relief more pronounced: `{"amount": 0-10, "size": 0.002-0.2, "enabled": true}`. Each pixel's difference
 from its smoothed surroundings (over `size` × the picture's width) is multiplied by 1 + `amount`, so faces,
 folds and bumps stand out more, while the steps between things (more than 5% of the depth range) stay as they
 are, with no halos. The result is scaled back into the depth's own range. It also amplifies the depth model's
@@ -518,8 +518,9 @@ install -e .`) means no reinstall is needed unless `requirements.txt` changed.
   move.
 - **Viewpoint:** Left / right and Down / up shift the view (see Viewpoint shift above), Amount sets how far.
   The picture is enlarged a little so the uncovered strips along its borders don't show.
-- **Exaggerate depth** (under Shape): makes bumps, folds and faces stand out (see Exaggerated depth); Detail
-  size says how big the things it brings out are. The 3D view and 3D print use it too.
+- **Exaggerate depth** (under Shape): makes bumps, folds and faces stand out (see Exaggerated depth); **On**
+  switches it off and on without losing its settings. Detail size says how big the things it brings out are
+  (Reset puts it back to 2%). The 3D view and 3D print use it too.
 - **Selections:** **Pick a target**, then click a person or thing: it's selected up to its depth edges and gets a
   palette of its own (a colour, to start with). Each target has a palette menu ("Same palette as the picture"
   keeps the picture's), Reverse palette, **Stop at floors**, Everything else, and sliders for Edge (the step
@@ -537,7 +538,8 @@ install -e .`) means no reinstall is needed unless `requirements.txt` changed.
   elsewhere.
 - **3D print:** Flat, or wrapped round a cylinder or a sphere (radius, how far round, and on a sphere how far
   from top to bottom; the base becomes the wall inside), Relief or Lithophane, width, points across, relief height and base (or thinnest/thickest),
-  Far raised, Use the crop, and **Every pixel** (a point for every pixel of the map: the most detail, big files). **Save local** writes the STL into `--favourites` on the machine running
+  Far raised, Use the crop, and **Detail**: Points across as typed, **Medium** (half the map's pixels) or
+  **Large** (every pixel: the most detail, big files). **Save local** writes the STL into `--favourites` on the machine running
   vathopy (`<map>_<look name or "vathopy">_relief.stl` or `…_lithophane.stl`, never overwriting: `-001`, …);
   **Download STL** sends the same file to the browser and writes nothing on the server. Both build it from the
   map (cropped and turned as the picture is shown) and say its size and triangle count. PrusaSlicer reads the
@@ -626,7 +628,7 @@ Every key is optional; unknown keys are rejected so that typos don't pass silent
 | `selections` | `[]` | vathopy: `[{"point": [fx, fy], "step", "range", "floors", "grow", "softness", "ramp": {…} or null, "cycles": n or null, "invert"}]` (see Selections) |
 | `overlay` | `null` | vathopy: the photo over the picture, `{"opacity", "mode", "where", "grey", "invert", "enabled"}` (see Photo overlay) |
 | `view_shift` | `null` | vathopy: `{"x", "y", "strength", "pivot", "edges": "zoom"/"fill"}` (see Viewpoint shift) |
-| `exaggerate` | `null` | vathopy: `{"amount": 0-10, "size": 0.002-0.2}` (see Exaggerated depth) |
+| `exaggerate` | `null` | vathopy: `{"amount": 0-10, "size": 0.002-0.2, "enabled"}` (see Exaggerated depth) |
 
 Mask targets: `ALL_BANDS`, `ALL_LIGHTS`, `BAND:<id>`, `LIGHT:<area id>`, `GROUP:<name>`.
 See `examples/demo_look.json` and `examples/template_look.json`. The latter was extracted from the

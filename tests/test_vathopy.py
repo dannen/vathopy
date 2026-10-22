@@ -1050,6 +1050,7 @@ def test_exaggerate_lifts_details_and_keeps_steps():
     d = np.where(xx < 100, 0.2, 0.8).astype(np.float32)                          # a step
     d += (0.01 * np.exp(-((xx - 150) ** 2 + (yy - 100) ** 2) / 50.0)).astype(np.float32)   # a small bump on the near side
     assert engine.exaggerate(d, None) is d
+    assert engine.exaggerate(d, normalise({"exaggerate": {"amount": 3, "enabled": False}})["exaggerate"]) is d
     ex = normalise({"exaggerate": {"amount": 3, "size": 0.05}})["exaggerate"]
     e = engine.exaggerate(d, ex)
     bump, bump_e = d[100, 150] - d[100, 180], e[100, 150] - e[100, 180]

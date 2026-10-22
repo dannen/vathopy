@@ -189,6 +189,7 @@
   .nums input { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px;
     padding: 4px 6px; font: inherit; font-variant-numeric: tabular-nums; }
   .nums [hidden] { display: none; }
+  .nums input:disabled { opacity: .45; }
   #v3d { display: block; width: 100%; height: 240px; margin-top: 8px; border: 1px solid var(--line); border-radius: 6px;
     background: var(--bg); cursor: grab; touch-action: none; }
   #stl_download, #stl_save { display: inline-flex; align-items: center; gap: 7px; }
@@ -240,9 +241,11 @@
       <input type="range" id="contour_strength" min="0" max="1" step="0.05" value="0"></div>
     <div class="row"><label for="contour_width">Line width (px)</label><output id="contour_width_v"></output>
       <input type="range" id="contour_width" min="0.5" max="8" step="0.5" value="1"></div>
-    <div class="row" title="Makes the relief more pronounced: bumps, folds and faces stand out from what's around them (the steps between things stay as they are). Also used by the 3D view and 3D print. Smoothing first keeps the depth map's own noise down"><label for="exaggerate">Exaggerate depth</label><output id="exaggerate_v"></output>
+    <div class="row" title="Makes the relief more pronounced: bumps, folds and faces stand out from what's around them (the steps between things stay as they are). Also used by the 3D view and 3D print. Smoothing first keeps the depth map's own noise down"><span class="lab"><label for="exaggerate">Exaggerate depth</label>
+      <label class="lock" title="Exaggerate the depth; off keeps its settings"><input type="checkbox" id="exaggerate_on" checked> On</label></span><output id="exaggerate_v"></output>
       <input type="range" id="exaggerate" min="0" max="5" step="0.1" value="0"></div>
-    <div class="row" title="How big the things it brings out are: small for creases and texture, large for whole faces and bodies"><label for="exaggerate_size">Detail size</label><output id="exaggerate_size_v"></output>
+    <div class="row" title="How big the things it brings out are: small for creases and texture, large for whole faces and bodies"><span class="lab"><label for="exaggerate_size">Detail size</label>
+      <button type="button" class="ghost small" id="exaggerate_size_reset" title="Back to the default, 2% of the width">Reset</button></span><output id="exaggerate_size_v"></output>
       <input type="range" id="exaggerate_size" min="0.005" max="0.1" step="0.005" value="0.02"></div>
 
     <h2>Viewpoint</h2>
@@ -355,6 +358,9 @@
       <option value="flat">Flat</option>
       <option value="cylinder">Wrapped round a cylinder</option>
       <option value="sphere">Wrapped round a sphere</option></select>
+    <select id="stl_detail" aria-label="Detail" style="margin-top:6px" title="How many points the mesh has across: as Points across says, or from the map's own pixels. More points, bigger files: every pixel of a 2496 px map is about 9 million triangles (465 MB), half of them about 2.3 million (117 MB); worth it printed large or on a resin printer">
+      <option value="custom">Detail: as Points across</option><option value="half">Detail: medium (half the pixels)</option>
+      <option value="all">Detail: large (every pixel)</option></select>
     <div class="nums">
       <label for="stl_width" class="flat-only">Width (mm)</label><input type="number" id="stl_width" class="flat-only" min="5" max="2000" step="1" value="100">
       <label for="stl_radius" class="wrap-only">Radius (mm)</label><input type="number" id="stl_radius" class="wrap-only" min="5" max="1000" step="1" value="40"
@@ -364,15 +370,14 @@
       <label for="stl_lat" class="sphere-only">Top to bottom (°)</label><input type="number" id="stl_lat" class="sphere-only" min="0" max="180" step="5" value="0"
         title="How far from top to bottom the picture's height covers, centred on the equator: 180 = pole to pole; 0 = keep the picture's proportions">
       <label for="stl_px">Points across</label><input type="number" id="stl_px" min="2" max="2000" step="1" value="501"
-        title="Resolution: 0.2 mm apart suits most printers; never more than the map has (Every pixel below uses them all)">
+        title="Resolution: 0.2 mm apart suits most printers; never more than the map has (Detail above can use the map's own pixels instead)">
       <label for="stl_relief" class="relief-only">Relief height (mm)</label><input type="number" id="stl_relief" class="relief-only" min="0" max="500" step="0.5" value="8">
       <label for="stl_base" class="relief-only" id="stl_base_label">Base (mm)</label><input type="number" id="stl_base" class="relief-only" min="0" max="100" step="0.5" value="2">
       <label for="stl_min" class="litho-only">Thinnest (mm)</label><input type="number" id="stl_min" class="litho-only" min="0.2" max="20" step="0.1" value="0.8">
       <label for="stl_max" class="litho-only">Thickest (mm)</label><input type="number" id="stl_max" class="litho-only" min="0.3" max="50" step="0.1" value="3">
     </div>
     <div class="checks"><label class="relief-only"><input type="checkbox" id="stl_invert"> Far raised (a mould)</label>
-      <label title="Print only what the crop above keeps"><input type="checkbox" id="stl_crop" checked> Use the crop</label>
-      <label title="The most detail: a point for every pixel of the map, whatever Points across says. Big files (a 2496 px map makes about 9 million triangles, 465 MB); best printed large or on a resin printer"><input type="checkbox" id="stl_full"> Every pixel</label></div>
+      <label title="Print only what the crop above keeps"><input type="checkbox" id="stl_crop" checked> Use the crop</label></div>
     <div class="inline"><button class="ghost" id="stl_save" title="Write the STL (millimetres, turned like the picture) into the favourites folder on the machine running vathopy">
       <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 3.5h9.5L16.5 6.5v10h-12.5zM7 3.5v4h6v-4M7 16.5v-5h6v5"/></svg>Save local</button>
       <button class="ghost" id="stl_download" title="Download a binary STL (millimetres), turned like the picture">
@@ -419,7 +424,7 @@ const fmt = {
   view_y: (v) => (+v === 0 ? "straight on" : `${+v > 0 ? "▲ " : "▼ "}${Math.abs(+v).toFixed(2)}`),
   view_strength: (v) => `${(+v * 100).toFixed(1)}% of the width`,
   overlay_opacity: (v) => (+v === 0 ? "off" : `${Math.round(+v * 100)}%`),
-  exaggerate: (v) => (+v === 0 ? "off" : `${(1 + +v).toFixed(1)}×`),
+  exaggerate: (v) => (+v === 0 ? "off" : `${(1 + +v).toFixed(1)}×` + ($("exaggerate_on").checked ? "" : " (off)")),
   exaggerate_size: (v) => `${(+v * 100).toFixed(1)}% of the width`,
   depth_scale: (v) => `${(+v).toFixed(2)}×`,
   cut_depth: (v) => (+v === 0 ? "off" : +v >= 1 ? "everything" : (+v).toFixed(3)),
@@ -795,7 +800,7 @@ function settings() {
   const s = { palette, invert: $("invert").checked, equalize: $("equalize").checked,
               focus_style: $("focus_style").value, focus: bands, keep: keeps, selections: sels, removes, cut_fill: $("cut_fill").value,
               overlay_mode: $("overlay_mode").value, overlay_where: $("overlay_where").value, overlay_grey: $("overlay_grey").checked,
-              overlay_invert: $("overlay_invert").checked, overlay_on: $("overlay_on").checked };
+              overlay_invert: $("overlay_invert").checked, overlay_on: $("overlay_on").checked, exaggerate_on: $("exaggerate_on").checked };
   for (const k of sliders) s[k] = parseFloat($(k).value);
   s.cycles = cyclesTotal(); delete s.cycles_fine;
   s.orientation = { ...orientation };
@@ -958,7 +963,7 @@ async function init() {
 // the settings in this browser; loading the page puts them back. Focuses and keep shapes come back
 // only on the same map (their depths belong to it).
 const PAGE_KEY = "vathopy.page";
-const STL_FIELDS = ["stl_mode", "stl_wrap", "stl_radius", "stl_arc", "stl_lat", "stl_width", "stl_px", "stl_relief", "stl_base", "stl_min", "stl_max", "stl_invert", "stl_crop", "stl_full"];
+const STL_FIELDS = ["stl_mode", "stl_wrap", "stl_radius", "stl_arc", "stl_lat", "stl_width", "stl_px", "stl_relief", "stl_base", "stl_min", "stl_max", "stl_invert", "stl_crop", "stl_detail"];
 let restoring = false;
 function savePage() {
   if (restoring || !$("map").value) return;
@@ -1012,6 +1017,9 @@ $("cycles_fine_lock").addEventListener("change", () => {
 });
 $("shift").addEventListener("input", drawSwatchBars);
 $("view_reset").onclick = () => { if (+$("view_x").value || +$("view_y").value) { $("view_x").value = $("view_y").value = 0; showValues(); full(); } };
+$("exaggerate_size_reset").onclick = () => {
+  if (+$("exaggerate_size").value !== 0.02) { $("exaggerate_size").value = 0.02; showValues(); if (+$("exaggerate").value) full(); else savePage(); }
+};
 $("shift_reset").onclick = () => { if (+$("shift").value !== 0) { $("shift").value = 0; showValues(); drawSwatchBars(); full(); } };
 for (const k of sliders) {
   $(k).addEventListener("input", () => { showValues(); if (k !== "supersample") preview(); });
@@ -1107,6 +1115,7 @@ $("pick_sel").onclick = () => setPicking(picking !== "select", "select");
 $("pick_remove").onclick = () => setPicking(picking !== "remove", "remove");
 $("cut_fill").addEventListener("change", full);
 for (const id of ["overlay_mode", "overlay_where", "overlay_grey", "overlay_invert", "overlay_on"]) $(id).addEventListener("change", full);
+$("exaggerate_on").addEventListener("change", () => { showValues(); full(); });
 // Which photo the map was made from (found by its name in the photos folder), for Photo over the picture.
 async function showPhoto() {
   const map = $("map").value;
@@ -1236,7 +1245,7 @@ function applySettings(s, name) {
   $("cut_fill").value = s.cut_fill || "black";
   $("overlay_mode").value = s.overlay_mode || "normal"; $("overlay_where").value = s.overlay_where || "all";
   $("overlay_grey").checked = !!s.overlay_grey; $("overlay_invert").checked = !!s.overlay_invert;
-  $("overlay_on").checked = s.overlay_on !== false;
+  $("overlay_on").checked = s.overlay_on !== false; $("exaggerate_on").checked = s.exaggerate_on !== false;
   setOrientation(s.orientation || {}, false);
   showValues(); if (name) $("name").value = name; full();
 }
@@ -1512,16 +1521,16 @@ function showStlMode() {
   for (const el of document.querySelectorAll(".wrap-only")) el.hidden = wrap === "flat";
   for (const el of document.querySelectorAll(".sphere-only")) el.hidden = wrap !== "sphere";
   $("stl_base_label").textContent = wrap === "flat" ? "Base (mm)" : "Wall (mm)";
-  $("stl_px").disabled = $("stl_full").checked;
+  $("stl_px").disabled = $("stl_detail").value !== "custom";
 }
-$("stl_full").addEventListener("change", showStlMode);
+$("stl_detail").addEventListener("change", showStlMode);
 $("stl_mode").onchange = () => { showStlMode(); update3d(); };
 $("stl_wrap").onchange = () => { showStlMode(); update3d(); };
 for (const id of ["stl_radius", "stl_arc", "stl_lat", "stl_relief", "stl_invert"]) $(id).addEventListener("change", update3d);
 showStlMode();
 function stlRequest(save) {
   return { map: $("map").value, settings: settings(), name: $("name").value, mode: $("stl_mode").value,
-           width_mm: +$("stl_width").value, px: $("stl_full").checked ? "all" : +$("stl_px").value, relief_mm: +$("stl_relief").value,
+           width_mm: +$("stl_width").value, px: $("stl_detail").value === "custom" ? +$("stl_px").value : $("stl_detail").value, relief_mm: +$("stl_relief").value,
            base_mm: +$("stl_base").value, min_mm: +$("stl_min").value, max_mm: +$("stl_max").value,
            invert: $("stl_invert").checked, crop: $("stl_crop").checked ? crop : null, save,
            wrap: $("stl_wrap").value, radius_mm: +$("stl_radius").value, arc_deg: +$("stl_arc").value, lat_deg: +$("stl_lat").value };
