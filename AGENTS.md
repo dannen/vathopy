@@ -1,7 +1,8 @@
 # AGENTS.md: vathopy
 
-For an AI agent working on this repo. `README.md` is the user guide and the reference for every look key and
-CLI option; this file says how the code fits together and what to keep true when you change it.
+For an AI agent working on this repo. `README.md` covers installing and what vathopy does; the manual in `docs/`
+(index: `docs/README.md`) is the reference for every setting, look key, CLI option and GUI control. This file
+says how the code fits together and what to keep true when you change it.
 
 ## What it is
 
@@ -32,7 +33,8 @@ numpy, OpenCV (headless) and OpenEXR; no GPU, no Blender at run time.
   parity against the real add-on (need the `bpy` module, see below).
 - `tools/`: `extract_look.py` (run in Blender: add-on relief -> look JSON), `make_examples.py` (README
   example pictures and contact sheet), `add_palettes.py` (regenerates the extra presets).
-- `examples/`: README pictures, demo/template looks, example palettes.
+- `docs/`: the manual (pictures, palettes, GUI, 3D printing, look files, faithfulness/development).
+- `examples/`: the README's and the manual's pictures, demo/template looks, example palettes.
 
 ## Rules that keep it correct
 
@@ -92,4 +94,5 @@ python -m venv .venv && .venv/bin/pip install -e '.[test]'
   Copyrighted source images stay out (only depth-map renders of them, where that's allowed).
 - Other projects may vendor vathopy by commit (e.g. a container image with the GUI); changes reach them only
   when they rebuild, so mention user-visible changes in the commit message.
-- The README documents every look key, CLI option and GUI control; update it with the code.
+- The manual in `docs/` documents every look key, CLI option and GUI control; update it with the code. Keep
+  the README short: what it does, install, a quick start, links into the manual, credits and licence.
