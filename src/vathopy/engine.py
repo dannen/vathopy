@@ -15,7 +15,7 @@ import numpy as np
 
 from . import par as PAR
 from . import remap
-from .look import DEFAULT_AREA, DEFAULT_BAND, _merge, normalise
+from .look import COLOR_BLENDS, DEFAULT_AREA, DEFAULT_BAND, _merge, normalise
 from .ramp import Ramp, apply_lut
 
 # constants from the add-on (common.py / shading.py)
@@ -331,6 +331,72 @@ def _keep_constant(strength, enabled):
     return np.float32(1.0) - np.float32(strength) * np.float32(enabled)
 
 
+COLOR_EPS = 1e-8
+_F0, _F1, _F2 = np.float32(0.0), np.float32(1.0), np.float32(2.0)
+
+
+def _col(d):
+    """A band's / area's / group's colour for sum_compute: col None = white / black."""
+    c = d.get("color")
+    return {"col": None if c is None else tuple(float(np.float32(v)) for v in c),
+            "blend": d.get("color_blend", "NORMAL") if c is not None else None}
+
+
+def _rgb_to_hsv(c):
+    r, g, b = c[..., 0], c[..., 1], c[..., 2]
+    cmax = np.maximum(r, np.maximum(g, b))
+    cmin = np.minimum(r, np.minimum(g, b))
+    cd = (cmax - cmin).astype(np.float32)
+    nz = cmax != _F0
+    s = np.where(nz, cd / np.where(nz, cmax, _F1), _F0).astype(np.float32)
+    sd = np.where(s != _F0, cd, _F1)
+    cr, cg, cb = ((cmax - r) / sd, (cmax - g) / sd, (cmax - b) / sd)
+    h = np.where(r == cmax, cb - cg, np.where(g == cmax, _F2 + cr - cb, np.float32(4.0) + cg - cr))
+    h = (h / np.float32(6.0)).astype(np.float32)
+    h = np.where(h < _F0, h + _F1, h)
+    h = np.where(s != _F0, h, _F0).astype(np.float32)
+    return h, s, cmax.astype(np.float32)
+
+
+def _hsv_to_rgb(h, s, v):
+    h = np.where(h == _F1, _F0, h).astype(np.float32) * np.float32(6.0)
+    i = np.floor(h)
+    f = (h - i).astype(np.float32)
+    p = (v * (_F1 - s)).astype(np.float32)
+    q = (v * (_F1 - s * f)).astype(np.float32)
+    t = (v * (_F1 - s * (_F1 - f))).astype(np.float32)
+    sel = [i == np.float32(k) for k in range(5)]
+    r = np.select(sel, [v, q, p, p, t], v)
+    g = np.select(sel, [t, v, v, q, p], p)
+    b = np.select(sel, [p, p, t, v, v], q)
+    grey = s == _F0
+    return np.stack([np.where(grey, v, r), np.where(grey, v, g), np.where(grey, v, b)], axis=-1).astype(np.float32)
+
+
+def mix_blend(b, t, a, c):
+    """Blender's Mix (colour) node: ``a`` toward ``c`` by factor ``t`` in blend mode ``b`` (sumchain.mix_blend)."""
+    if b == "NORMAL":
+        return ((_F1 - t) * a + t * c).astype(np.float32)
+    tm = (_F1 - t).astype(np.float32)
+    if b == "MULTIPLY":
+        return (a + t * (a * c - a)).astype(np.float32)
+    if b == "SCREEN":
+        return (_F1 - (tm + t * (_F1 - c)) * (_F1 - a)).astype(np.float32)
+    if b == "OVERLAY":
+        lo = a * (tm + _F2 * t * c)
+        hi = _F1 - (tm + _F2 * t * (_F1 - c)) * (_F1 - a)
+        return np.where(a < np.float32(0.5), lo, hi).astype(np.float32)
+    if b == "SOFT_LIGHT":
+        scr = _F1 - (_F1 - c) * (_F1 - a)
+        return (tm * a + t * ((_F1 - a) * c * a + a * scr)).astype(np.float32)
+    if b == "COLOR":
+        h2, s2, _v2 = _rgb_to_hsv(c)
+        _h, _s, v = _rgb_to_hsv(a)
+        mixed = (a + t * (_hsv_to_rgb(h2, s2, v) - a)).astype(np.float32)
+        return np.where((s2 != _F0)[..., None], mixed, a).astype(np.float32)
+    raise ValueError(f"unknown colour blend {b!r}")
+
+
 def sum_prepare(lk, shape, px, py, pw, ph, mid, s_eff):
     plan = _resolve(lk)
     areas = lk["areas"]
@@ -357,13 +423,13 @@ def sum_prepare(lk, shape, px, py, pw, ph, mid, s_eff):
             if not b["enabled"] or not _band_solo_allows(lk, b):
                 continue
             recs.append(("band", {"vals": band_values(b, s_eff, mid), "lut": band_lut(b["interpolation"]),
-                                  "masks": mask_recs(_masks_for(plan, "band", b["id"]))}))
+                                  "masks": mask_recs(_masks_for(plan, "band", b["id"])), **_col(b)}))
         elif t[0] == "light":
             u = t[1]
             if not _area_on(lk, u, areas):
                 continue
             recs.append(("light", {"w": lp_of(u), "strength": np.float32(float(u["strength"])),
-                                   "masks": mask_recs(_masks_for(plan, "light", u["id"]))}))
+                                   "masks": mask_recs(_masks_for(plan, "light", u["id"])), **_col(u)}))
         else:
             gname, members = t[1], t[2]
             if not [mb for mb in members if _area_on(lk, mb, areas)]:
@@ -374,13 +440,17 @@ def sum_prepare(lk, shape, px, py, pw, ph, mid, s_eff):
             recs.append(("group", {"members": [(lp_of(mb), mask_recs(_masks_for(plan, "member", mb["id"])))
                                                for mb in members],
                                    "st": st, "sp": sp, "sinv": sinv, "gs": gs,
-                                   "masks": mask_recs(_masks_for(plan, "group", gname))}))
+                                   "masks": mask_recs(_masks_for(plan, "group", gname)),
+                                   **_col(rec or {})}))
     return {"recs": recs, "lights": lights, "px": px, "py": py, "dead": [m["name"] for m, _ in plan["dead"]]}
 
 
 def sum_compute(prep, f, base, extra=()):
     """The bands and areas summed over ``base``; ``extra``: precomputed terms (vathopy's shape
-    focuses, strength x weight) added to the same sum."""
+    focuses, strength x weight), each an array or (array, colour, blend), added to the same sum.
+    Uncoloured terms add up and are clipped once (toward white / black); coloured ones are
+    averaged per blend mode, weighted by their positive amounts, and mixed in after
+    (sumchain.sum_compute_steps)."""
     w_cache = {}
 
     def w_of(key):
@@ -406,6 +476,20 @@ def sum_compute(prep, f, base, extra=()):
     h_, w_ = f.shape
     px, py = prep["px"], prep["py"]
     acc = None
+    csum = {}
+
+    def put(term, col, blend):
+        nonlocal acc
+        if col is None:
+            acc = term if acc is None else np.add(acc, term, out=acc)
+            return
+        if blend not in csum:
+            csum[blend] = [np.zeros((h_, w_), np.float32), np.zeros((h_, w_, 3), np.float32)]
+        A, V = csum[blend]
+        ab = np.maximum(term, np.float32(0.0))
+        np.add(A, ab, out=A)
+        np.add(V, ab[..., None] * np.asarray(col, np.float32), out=V)
+
     for kind, r in prep["recs"]:
         if kind == "band":
             vals = r["vals"]
@@ -449,21 +533,33 @@ def sum_compute(prep, f, base, extra=()):
                     a = np.power(ps, sinv).astype(np.float32)
                 a = masked(a, r["masks"], r0, r1)
                 return (a * r["gs"]).astype(np.float32)
-        term = PAR.map_rows(chunk, h_)
-        acc = term if acc is None else np.add(acc, term, out=acc)
+        put(PAR.map_rows(chunk, h_), r.get("col"), r.get("blend"))
     for term in extra:
-        acc = term.copy() if acc is None else np.add(acc, term, out=acc)
-    if acc is None:
+        term, col, blend = term if isinstance(term, tuple) else (term, None, None)
+        put(term.copy() if acc is None and col is None else term, col, blend)
+    if acc is None and not csum:
         return base
 
     def final_chunk(r0, r1):
-        p = acc[r0:r1]
-        p = np.minimum(np.maximum(p, np.float32(-1.0)), np.float32(1.0))
-        tp = np.maximum(p, np.float32(0.0))[..., None]
-        tn = np.maximum(p * np.float32(-1.0), np.float32(0.0))[..., None]
-        b_ = base[r0:r1]
-        out = (b_ + tp * (np.float32(1.0) - b_)).astype(np.float32)
-        return (out + tn * (np.float32(0.0) - out)).astype(np.float32)
+        if acc is not None:
+            p = acc[r0:r1]
+            p = np.minimum(np.maximum(p, np.float32(-1.0)), np.float32(1.0))
+            tp = np.maximum(p, np.float32(0.0))[..., None]
+            tn = np.maximum(p * np.float32(-1.0), np.float32(0.0))[..., None]
+            b_ = base[r0:r1]
+            out = (b_ + tp * (np.float32(1.0) - b_)).astype(np.float32)
+            out = (out + tn * (np.float32(0.0) - out)).astype(np.float32)
+        else:
+            out = base[r0:r1]
+        for b in COLOR_BLENDS:
+            if b not in csum:
+                continue
+            A = csum[b][0][r0:r1]
+            inv = (np.float32(1.0) / np.maximum(A, np.float32(COLOR_EPS))).astype(np.float32)
+            avg = (csum[b][1][r0:r1] * inv[..., None]).astype(np.float32)
+            t = np.minimum(np.maximum(A, np.float32(0.0)), np.float32(1.0))[..., None]
+            out = mix_blend(b, t, out, avg)
+        return out
     return PAR.map_rows(final_chunk, h_)
 
 
@@ -519,7 +615,8 @@ def focus_bands(focus, lo, hi, s_eff, mid, pw, ph):
                                          "strength": float(fo["strength"]), "normal": normal,
                                          "center": [(float(fx) - 0.5) * pw, (0.5 - float(fy)) * ph, z],
                                          "width": float(fo["width"]) * span * thick,
-                                         "softness": float(fo["softness"]) * span * thick}, "focus"))
+                                         "softness": float(fo["softness"]) * span * thick,
+                                         "color": fo.get("color"), "color_blend": fo.get("color_blend", "NORMAL")}, "focus"))
     return out
 
 
@@ -1050,14 +1147,72 @@ def exaggerate(depth, ex):
     return (lo + (out - olo) * np.float32(rng / ((ohi - olo) or 1.0))).astype(np.float32)   # back into the old range
 
 
+LC_SAMPLES = 12          # local contrast: depth levels the remapping is sampled at (Aubry et al.'s fast version)
+LC_NOISE = 0.01          # local contrast: differences below this share of `range` are left linear (no noise boost)
+
+
+def _pyramids(x, levels):
+    """Gaussian and Laplacian pyramids (cv2.pyrDown / pyrUp), coarsest Gaussian level last."""
+    import cv2
+    g = [x]
+    for _ in range(levels):
+        g.append(cv2.pyrDown(g[-1]))
+    lap = [g[i] - cv2.pyrUp(g[i + 1], dstsize=(g[i].shape[1], g[i].shape[0])) for i in range(levels)]
+    return g, lap
+
+
+def local_contrast(depth, lc):
+    """The depth's relief made stronger where it's small and gentler where it jumps (a look's
+    ``local_contrast``): a local Laplacian filter (Paris, Hasinoff & Kautz 2011, sampled as in
+    Aubry et al. 2014). Around each pixel, depth differences smaller than ``range`` (a share of
+    the depth range) are boosted (more with ``amount``) and edges stay sharp, without halos.
+    ``compress`` (0-1) also shrinks bigger differences, the steps between things; that tilts
+    the surfaces beside each step towards each other, so it's off by default. Scaled back into
+    the depth's own range."""
+    if lc is None or (lc["amount"] <= 0 and lc.get("compress", 0.0) <= 0) or not lc.get("enabled", True):
+        return depth
+    import cv2
+    d = np.ascontiguousarray(depth, dtype=np.float32)
+    lo, hi = float(d.min()), float(d.max())
+    rng = (hi - lo) or 1.0
+    x = (d - lo) / np.float32(rng)
+    a = float(lc["amount"])
+    sr, alpha, beta = float(lc["range"]), 1.0 / (1.0 + 3.0 * a), 1.0 - float(lc.get("compress", 0.0))
+
+    def remap(g):
+        diff = x - np.float32(g)
+        t = np.abs(diff) / np.float32(sr)
+        blend = np.clip((t - LC_NOISE) / LC_NOISE, 0.0, 1.0)            # tiny differences stay linear
+        inner = np.power(t, np.float32(alpha)) * blend + t * (1.0 - blend)
+        mag = np.where(t <= 1.0, inner, 1.0 + np.float32(beta) * (t - 1.0)) * np.float32(sr)
+        return (np.float32(g) + np.sign(diff) * mag).astype(np.float32)
+
+    levels = max(1, min(8, int(np.log2(max(2, min(x.shape) // 16)))))
+    gx, _ = _pyramids(x, levels)
+    out = [np.zeros_like(lv) for lv in gx[:-1]]
+    step = 1.0 / (LC_SAMPLES - 1)
+    for k in range(LC_SAMPLES):
+        g = k * step
+        _, lap = _pyramids(remap(g), levels)
+        for i in range(levels):
+            wt = np.clip(1.0 - np.abs(gx[i] - np.float32(g)) / np.float32(step), 0.0, 1.0)   # hat: the two nearest samples
+            out[i] += wt * lap[i]
+    y = gx[-1]
+    for i in reversed(range(levels)):
+        y = cv2.pyrUp(y, dstsize=(out[i].shape[1], out[i].shape[0])) + out[i]
+    ylo, yhi = float(y.min()), float(y.max())
+    return (lo + (y - ylo) * np.float32(rng / ((yhi - ylo) or 1.0))).astype(np.float32)
+
+
 def _prepared(depth, lk, photo_bu=None):
-    """The depth as a look sees it (moved by its view shift, smoothed, exaggerated), the look with
+    """The depth as a look sees it (moved by its view shift, smoothed, exaggerated, local contrast), the look with
     its focus and keep points given in pixels resolved to depths and pivots, and the photo moved
     alike: what render and deleted work from."""
     depth, photo_bu = view_shift(depth, lk["view_shift"], photo_bu)
     if lk["smooth_depth"] > 0:
         depth = smooth_depth(depth, lk["smooth_depth"])
     depth = exaggerate(depth, lk["exaggerate"])
+    depth = local_contrast(depth, lk["local_contrast"])
     if any(fo["at"] is not None for fo in lk["focus"]):
         h_, w_ = depth.shape
         lk = dict(lk, focus=[dict(fo, depth=focus_depth_at(depth, lk, *fo["at"]), at=None,
@@ -1177,7 +1332,7 @@ def _render(depth, lk):
         for fo, ra in zip(lk["focus"], all_reaches):
             if is_shape(fo) and fo["enabled"] and float(fo["strength"]):
                 w = focus_shape_weight(f, fo, ra, lo, hi, pw, ph, px, py, mid, s_eff, lk["depth_scale"])
-                extra.append((w * np.float32(fo["strength"])).astype(np.float32))
+                extra.append(((w * np.float32(fo["strength"])).astype(np.float32), *_col(fo).values()))
         lk = dict(lk, bands=lk["bands"] + focus_bands(lk["focus"], lo, hi, s_eff, mid, pw, ph),
                   areas=lk["areas"] + reaches)
     tilt = resolve_tilt(lk["tilt"], lo, hi, s_eff, mid, pw, ph)

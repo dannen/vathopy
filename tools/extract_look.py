@@ -70,13 +70,20 @@ def extract(plane, V=None):
             "hue_interpolation": rec["hue_interpolation"],
             "stops": [[float(p), [float(c) for c in col]] for p, col in rec["elements"]]}
 
+    def colour(t):
+        """1.0.96 colours, read through the add-on's sumchain (older add-ons: none)."""
+        if not hasattr(SC, "term_colored") or not SC.term_colored(plane, t):
+            return {}
+        return {"color": [float(c) for c in SC.term_color(plane, t)], "color_blend": SC.term_blend(plane, t)}
+
     bands = []
     for b in BD.band_units(plane):
         sl = C.band_slice(plane, cross=b)
         bands.append({"id": BD.band_id(b), "name": b.name, "enabled": bool(b.vfree_band_enabled),
                       "strength": float(b.vfree_band_strength), "interpolation": b.vfree_band_interp,
                       "normal": [sl.nx, sl.ny, sl.nz], "center": [sl.cx, sl.cy, sl.cz],
-                      "width": float(b.vfree_band_width_m), "softness": float(b.vfree_band_softness_m)})
+                      "width": float(b.vfree_band_width_m), "softness": float(b.vfree_band_softness_m),
+                      **colour(("band", b))})
 
     areas = []
     inv = plane.matrix_world.inverted()
@@ -94,9 +101,11 @@ def extract(plane, V=None):
             "group": u.vfree_merge_group,
             "mask": {"strength": float(u.vfree_mask_strength), "side": u.vfree_mask_side,
                      "edge": float(u.vfree_mask_edge), "target": u.vfree_mask_target or SC.ALL_BANDS},
+            **colour(("light", u)),
         })
 
-    groups = {g.name: {"strength": float(g.strength), "blend": float(getattr(g, "blend", 0.0))}
+    groups = {g.name: {"strength": float(g.strength), "blend": float(getattr(g, "blend", 0.0)),
+                       **colour(("group", g.name))}
               for g in s.merge_groups}
 
     img = bpy.data.images.get(s.depth_image)

@@ -1083,3 +1083,73 @@ def test_prints_leave_out_what_the_cut_deletes():
     seen, gone = engine.deleted(d, {"cut": {"depth": 0.5}})
     assert np.array_equal(seen, d) and gone[60, 80] == 0.0 and gone[5, 5] == 1.0   # the far background goes
     assert engine.deleted(d, {})[1] is None
+
+
+def test_coloured_focus_band_area_and_group():
+    from vathopy.engine import mix_blend
+    d = np.tile(np.linspace(0, 1, 200, dtype=np.float32), (20, 1))          # far left .. near right
+    fo = {"depth": 0.5, "width": 0.1, "softness": 0.05, "color": [1.0, 0.5, 0.0]}
+    out, _ = vathopy.render(d, {"base": "BLACK", "focus": [fo]})
+    assert np.allclose(out[10, 100, :3], [1.0, 0.5, 0.0], atol=1e-5)      # full strength: the colour itself
+    assert np.allclose(out[10, 20, :3], 0.0, atol=1e-6)                    # outside: the black base
+    # a coloured term with a negative strength does nothing
+    neg, _ = vathopy.render(d, {"base": "BLACK", "focus": [dict(fo, strength=-1.0)]})
+    assert np.allclose(neg[..., :3], 0.0, atol=1e-6)
+    # MULTIPLY on a white base: white x colour; COLOR keeps the brightness, takes the hue
+    mul, _ = vathopy.render(d, {"base": "WHITE", "focus": [dict(fo, color_blend="MULTIPLY")]})
+    assert np.allclose(mul[10, 100, :3], [1.0, 0.5, 0.0], atol=1e-5)
+    plain, _ = vathopy.render(d, {})
+    hue, _ = vathopy.render(d, {"focus": [dict(fo, color_blend="COLOR")]})
+    assert hue[10, 100, :3].max() == pytest.approx(plain[10, 100, :3].max(), abs=1e-5)
+    # two overlapping colours with the same blend average, weighted by their amounts
+    two, _ = vathopy.render(d, {"base": "BLACK", "focus": [fo, dict(fo, color=[0.0, 0.0, 1.0], strength=0.5)]})
+    assert np.allclose(two[10, 100, :3], [2 / 3, 1 / 3, 1 / 3], atol=1e-5)
+    # bands, areas and merge groups take the same keys
+    area = {"position": [0.0, 0.0, 0.0], "radius": [5.0, 5.0, 50.0], "color": [0.0, 1.0, 0.0]}
+    a_out, _ = vathopy.render(d, {"base": "BLACK", "areas": [area]})
+    g_out, _ = vathopy.render(d, {"base": "BLACK", "areas": [dict(area, mode="MERGE", color=None)],
+                                  "groups": {"Group 1": {"color": [0.0, 1.0, 0.0]}}})
+    assert a_out[10, 100, 1] > 0.5 and a_out[10, 100, 0] == 0.0 and np.array_equal(a_out, g_out)
+    # the mix modes are Blender's: t = 0 changes nothing
+    a, c = np.full((1, 3), 0.3, np.float32), np.asarray([0.9, 0.1, 0.4], np.float32)
+    for b in vathopy.look.COLOR_BLENDS:
+        assert np.allclose(mix_blend(b, np.zeros((1, 1), np.float32), a, c), a)
+    with pytest.raises(ValueError, match="color_blend"):
+        vathopy.render(d, {"focus": [dict(fo, color_blend="DODGE")]})
+    with pytest.raises(ValueError, match="color must be"):
+        vathopy.render(d, {"bands": [{"color": [1, 0]}]})
+
+
+def test_gui_focus_colour_round_trips():
+    from vathopy import gui
+    s = {"focus_style": "dark", "focus": [
+        {"depth": 0.5, "width": 0.1, "softness": 0.05, "strength": 0.8, "color": "#ff8000", "color_blend": "SCREEN"},
+        {"depth": 0.3, "width": 0.1, "softness": 0.05, "strength": 0.5}]}
+    lk = gui.look_from_settings(s)
+    (a, b) = lk["focus"]
+    assert a["strength"] == 0.8 and a["color_blend"] == "SCREEN"          # coloured: always toward its colour
+    assert a["color"][0] == pytest.approx(1.0) and a["color"][2] == 0.0 and 0.2 < a["color"][1] < 0.23   # linear
+    assert b["strength"] == -0.5 and b["color"] is None                   # the style's sign as before
+    back = gui.settings_from_look(lk)
+    assert back["focus_style"] == "dark"
+    assert [(f.get("color"), f.get("color_blend")) for f in back["focus"]] == [("#ff8000", "SCREEN"), (None, None)]
+    with pytest.raises(ValueError, match="#rrggbb"):
+        gui.look_from_settings({"focus_style": "light", "focus": [dict(s["focus"][0], color="orange")]})
+
+
+def test_local_contrast_boosts_small_shapes_and_keeps_steps():
+    from vathopy.engine import local_contrast
+    yy, xx = np.mgrid[0:300, 0:600].astype(np.float32)
+    d = (0.2 + 0.5 * (xx > 300) + 0.01 * np.sin(xx / 5.0)).astype(np.float32)   # a step and small ripples
+    o = local_contrast(d, {"amount": 0.8, "range": 0.1, "compress": 0.0, "enabled": True})
+    assert o.min() == pytest.approx(d.min(), abs=1e-5) and o.max() == pytest.approx(d.max(), abs=1e-5)   # same range
+    assert o[150, 50:250].std() > 1.3 * d[150, 50:250].std()                    # ripples stronger
+    assert abs(o[150, 280:298].mean() - o[150, 50:250].mean()) < 0.01           # flat beside the step: no tilt
+    assert np.abs(np.diff(o[150, 290:310])).max() > 0.4                          # the step stays sharp
+    squeezed = local_contrast(d, {"amount": 0.0, "range": 0.1, "compress": 0.6, "enabled": True})
+    assert squeezed[150, 280:298].mean() > d[150, 280:298].mean() + 0.02        # compress: tilts towards the step
+    assert local_contrast(d, None) is d
+    with pytest.raises(ValueError, match="local_contrast"):
+        vathopy.render(d, {"local_contrast": {"amount": 2}})
+    out, _ = vathopy.render(d, {"local_contrast": {"amount": 0.5}})
+    assert np.isfinite(out).all()

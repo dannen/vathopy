@@ -9,6 +9,12 @@ Units follow the Vathography add-on, so a look extracted from Blender renders id
 * a pixel's relief height is ``z = (remapped_depth - midlevel) * scale`` metres;
 * bands and areas live in that plane space (metres).
 
+Bands, areas and merge groups take a colour (add-on 1.0.96): ``"color": [r, g, b]`` (0-1, linear; null =
+off) makes a positive strength push toward that colour instead of white (a negative strength then does
+nothing), combined with the picture by ``"color_blend"``: NORMAL, MULTIPLY, SCREEN, OVERLAY, SOFT_LIGHT or
+COLOR (hue and saturation only). Coloured terms with the same blend are averaged, weighted by their
+amounts; the blends apply in that order, after the white / black sum. A ``focus`` takes the same two keys.
+
 Two keys are vathopy extensions with no add-on equivalent (both off by default, so looks
 extracted from Blender render exactly as before):
 
@@ -92,6 +98,12 @@ extracted from Blender render exactly as before):
   difference from its smoothed surroundings (over ``s`` x the picture's width, 0.002-0.2) is
   multiplied by 1 + ``a`` (0-10), so bumps, folds and faces stand out more; the steps between things
   stay as they are. After ``smooth_depth``; the 3D print (``vathopy relief``) uses it too.
+* ``local_contrast`` (vathopy only): ``{"amount": a, "range": r, "compress": c, "enabled": true}``, an
+  edge-aware local Laplacian filter on the depth after ``exaggerate``: around each pixel, depth
+  differences smaller than ``r`` (0.01-0.5 of the depth range) are boosted (more with ``a``, 0-1), so
+  small shapes (folds, faces, carvings) stand out, with sharp edges and no halos. ``c`` (0-0.9, default
+  0) also shrinks the bigger differences, the steps between things, which tilts the surfaces beside
+  each step towards each other. Before the ramp, so colours stay on it; the 3D print uses it too.
 * ``orientation``: ``{"turns": k, "mirror": m}`` turns the finished picture k quarter turns
   counter-clockwise, then mirrors it left-right if m; the last step, so focus pivots, ``at`` and
   everything else stay in the depth map's own coordinates.
@@ -129,6 +141,7 @@ DEFAULT_LOOK = {
     "overlay": None,
     "view_shift": None,
     "exaggerate": None,
+    "local_contrast": None,
 }
 
 DEFAULT_CUT = {"depth": 0.0, "near": 0.0, "softness": 0.0, "fill": "black", "keep": [], "remove": []}
@@ -148,30 +161,37 @@ DEFAULT_VIEW_SHIFT = {"x": 0.0, "y": 0.0, "strength": 0.05, "pivot": 0.5, "edges
 
 DEFAULT_EXAGGERATE = {"amount": 1.0, "size": 0.02, "enabled": True}
 
+DEFAULT_LOCAL_CONTRAST = {"amount": 0.5, "range": 0.1, "compress": 0.0, "enabled": True}
+
 DEFAULT_CONTOURS = {"cycles": 4.0, "strength": 0.85, "width": 2.0}
 
 DEFAULT_FOCUS = {"depth": None, "at": None, "width": 0.1, "softness": 0.05, "strength": 1.0, "enabled": True,
                  "angle": 0.0, "lean": 0.0, "pivot": None, "reach_w": 0.0, "reach_h": 0.0, "reach_edge": 0.5,
                  "locked": False,  # locked: the GUI's lock, kept with the look; no effect on the picture
-                 "shape": "plane", "fill": "shell", "size": [0.15, 0.15, 0.15], "length": 0.0, "cone_angle": 30.0}
+                 "shape": "plane", "fill": "shell", "size": [0.15, 0.15, 0.15], "length": 0.0, "cone_angle": 30.0,
+                 "color": None, "color_blend": "NORMAL"}
 
 DEFAULT_CONTROL = {"center": 0.5, "offset": 0.0, "feather": 0.02, "from_min": None, "from_max": None}
 
 DEFAULT_BAND = {"id": "", "name": "", "enabled": True, "strength": 1.0, "interpolation": "LINEAR",
-                "normal": [0.0, 0.0, 1.0], "center": [0.0, 0.0, 0.0], "width": 0.06, "softness": 0.06}
+                "normal": [0.0, 0.0, 1.0], "center": [0.0, 0.0, 0.0], "width": 0.06, "softness": 0.06,
+                "color": None, "color_blend": "NORMAL"}
 
 DEFAULT_AREA = {"id": "", "name": "", "enabled": True, "mode": "ADD", "shape": "ELLIPSOID",
                 "position": [0.0, 0.0, 0.1], "radius": [0.5, 0.5, 0.5],
                 "basis": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
                 "reach_plus": [1.0, 1.0, 1.0], "reach_minus": [1.0, 1.0, 1.0],
                 "strength": 1.0, "falloff": 0.5, "edge": 0.5, "group": "Group 1",
-                "mask": {"strength": 1.0, "side": "HIDE", "edge": 0.1, "target": "ALL_BANDS"}}
+                "mask": {"strength": 1.0, "side": "HIDE", "edge": 0.1, "target": "ALL_BANDS"},
+                "color": None, "color_blend": "NORMAL"}
 
-DEFAULT_GROUP = {"strength": 1.0, "blend": 0.0}
+DEFAULT_GROUP = {"strength": 1.0, "blend": 0.0, "color": None, "color_blend": "NORMAL"}
 
 REPLACED_WHOLE = ("ramp",)  # given as a whole: {"preset": KEY [, "mirror": true]} or {"stops": [...], ...}
 
 AREA_MODES = ("ADD", "MERGE", "MASK")
+# add-on 1.0.96: how a band's / area's colour combines with the picture, applied in this order
+COLOR_BLENDS = ("NORMAL", "MULTIPLY", "SCREEN", "OVERLAY", "SOFT_LIGHT", "COLOR")
 BASES = ("RAMP", "BLACK", "WHITE")
 
 
@@ -200,6 +220,17 @@ def _check_region(r, where):
     r["invert"], r["enabled"], r["floors"] = bool(r["invert"]), bool(r["enabled"]), bool(r["floors"])
 
 
+def _check_color(d, where):
+    """``color``: null (off: pushes toward white / black) or [r, g, b] 0-1 (linear, clamped like the add-on)."""
+    c = d["color"]
+    if c is not None:
+        if not (isinstance(c, (list, tuple)) and len(c) == 3):
+            raise ValueError(f"{where}.color must be null or [r, g, b] (0-1)")
+        d["color"] = [min(max(float(v), 0.0), 1.0) for v in c]
+    if d["color_blend"] not in COLOR_BLENDS:
+        raise ValueError(f"{where}.color_blend must be one of {COLOR_BLENDS}")
+
+
 def normalise(look):
     """Fill defaults and check a look dict; returns a new dict."""
     lk = _merge({k: v for k, v in DEFAULT_LOOK.items() if k != "vathopy_look"},
@@ -212,6 +243,7 @@ def normalise(look):
     for i, b in enumerate(lk["bands"]):
         b["id"] = b["id"] or f"band{i + 1}"
         b["name"] = b["name"] or b["id"]
+        _check_color(b, f"bands[{i}]")
     lk["areas"] = [_merge(DEFAULT_AREA, a, f"areas[{i}]") for i, a in enumerate(lk["areas"])]
     for i, a in enumerate(lk["areas"]):
         a["id"] = a["id"] or f"area{i + 1}"
@@ -222,7 +254,10 @@ def normalise(look):
             raise ValueError(f"areas[{i}].shape must be ELLIPSOID or BOX")
         if a["mask"]["side"] not in ("HIDE", "KEEP"):
             raise ValueError(f"areas[{i}].mask.side must be HIDE or KEEP")
+        _check_color(a, f"areas[{i}]")
     lk["groups"] = {str(k): _merge(DEFAULT_GROUP, v, f"groups[{k!r}]") for k, v in lk["groups"].items()}
+    for k, g in lk["groups"].items():
+        _check_color(g, f"groups[{k!r}]")
     if lk["base"] not in BASES:
         raise ValueError(f"base must be one of {BASES}")
     w = lk["window"]
@@ -301,6 +336,7 @@ def normalise(look):
         fo["size"], fo["length"], fo["cone_angle"] = sz, float(fo["length"]), float(fo["cone_angle"])
         if not (0.0 <= fo["length"] <= 8.0 and 0.5 <= fo["cone_angle"] <= 89.5):
             raise ValueError(f"focus[{i}]: length must be 0 (endless) to 8, cone_angle 0.5-89.5 degrees")
+        _check_color(fo, f"focus[{i}]")
     lk["selections"] = [_merge(DEFAULT_SELECTION, sel, f"selections[{i}]") for i, sel in enumerate(lk["selections"] or [])]
     for i, sel in enumerate(lk["selections"]):
         _check_region(sel, f"selections[{i}]")
@@ -323,6 +359,12 @@ def normalise(look):
         if not (-1.0 <= vs["x"] <= 1.0 and -1.0 <= vs["y"] <= 1.0 and 0.0 <= vs["strength"] <= 0.5 and 0.0 <= vs["pivot"] <= 1.0
                 and vs["edges"] in ("zoom", "fill")):
             raise ValueError("view_shift: x and y -1 to 1, strength 0-0.5, pivot 0-1, edges zoom or fill")
+    if lk["local_contrast"] is not None:
+        lc = lk["local_contrast"] = _merge(DEFAULT_LOCAL_CONTRAST, lk["local_contrast"], "local_contrast")
+        lc["amount"], lc["range"], lc["compress"] = float(lc["amount"]), float(lc["range"]), float(lc["compress"])
+        lc["enabled"] = bool(lc["enabled"])
+        if not (0.0 <= lc["amount"] <= 1.0 and 0.01 <= lc["range"] <= 0.5 and 0.0 <= lc["compress"] <= 0.9):
+            raise ValueError("local_contrast: amount 0-1, range 0.01-0.5 of the depth range, compress 0-0.9")
     if lk["exaggerate"] is not None:
         ex = lk["exaggerate"] = _merge(DEFAULT_EXAGGERATE, lk["exaggerate"], "exaggerate")
         ex["amount"], ex["size"], ex["enabled"] = float(ex["amount"]), float(ex["size"]), bool(ex["enabled"])

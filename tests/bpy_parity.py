@@ -39,6 +39,7 @@ def enable_addon():
 V = enable_addon()
 C, SH, BD, SC, AR, PAR, RP = V.common, V.shading, V.bands, V.sumchain, V.artistic, V.par, V.ramp_presets
 rng = np.random.default_rng(7)
+crng = np.random.default_rng(11)          # colours (add-on 1.0.96): their own stream, so older scenes stay the same
 work = tempfile.mkdtemp(prefix="vathopy_parity_")
 
 
@@ -176,6 +177,15 @@ def build_scene(depth_path, i):
         if u.vfree_light_mode == "MASK":
             items = [it[0] for it in SC._target_list(u)]
             u.vfree_mask_target = str(rng.choice(items))
+    if hasattr(C, "COLOR_BLENDS"):
+        for ob, pre in [(b, "vfree_band") for b in BD.band_units(plane)] + [(u, "vfree_light") for u in units]:
+            if crng.random() < 0.5:
+                setattr(ob, pre + "_use_color", True)
+                col = crng.random(3)
+                if crng.random() < 0.15:
+                    col = np.full(3, crng.choice([0.0, 0.5, 1.0]))          # grey: COLOR does nothing
+                setattr(ob, pre + "_color", tuple(float(c) for c in col))
+                setattr(ob, pre + "_color_blend", str(crng.choice(C.COLOR_BLENDS)))
     if rng.random() < 0.4:
         s.band_base = str(rng.choice(["BLACK", "WHITE"]))
     if rng.random() < 0.1 and units:
@@ -190,7 +200,7 @@ def main():
     files = make_inputs()
     worst = 0.0
     fails = []
-    feats = {"bands": 0, "areas": 0, "controls": 0, "tilt": 0, "held": 0, "near_left": 0}
+    feats = {"bands": 0, "areas": 0, "controls": 0, "tilt": 0, "held": 0, "near_left": 0, "colours": 0}
     for i in range(N):
         path = files[i % len(files)]
         plane = build_scene(path, i)
@@ -210,6 +220,8 @@ def main():
         feats["tilt"] += look["tilt"] is not None
         feats["held"] += C.ramp_held_range(plane) is not None
         feats["near_left"] += look["ramp_near_left"]
+        cols = [x for x in look["bands"] + look["areas"] + list(look["groups"].values()) if x.get("color")]
+        feats["colours"] += len(cols) > 0
         status = "OK " if err <= TOL and io_err == 0.0 else "BAD"
         if status == "BAD":
             fails.append(i)
@@ -218,7 +230,8 @@ def main():
                 json.dump(look, fh, indent=1)
         print(f"{status} scene {i:3d} {os.path.basename(path):16s} max |diff| {err:.2e}  depth read {io_err:.1e}  "
               f"bands {len(look['bands'])} areas {len(look['areas'])} controls {len(look['controls'])} "
-              f"tilt {'y' if look['tilt'] else 'n'} ramp {look['ramp']['interpolation']}/{look['ramp']['color_mode']}")
+              f"tilt {'y' if look['tilt'] else 'n'} ramp {look['ramp']['interpolation']}/{look['ramp']['color_mode']}"
+              + (f" colours {','.join(x['color_blend'] for x in cols)}" if cols else ""))
     print(f"\n{N} scenes, worst max |diff| {worst:.2e}, failing: {fails or 'none'}; scenes with: {feats}")
     print("work dir:", work)
     sys.exit(1 if fails else 0)

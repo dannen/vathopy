@@ -5,8 +5,9 @@ by Karim Joseph Nassar: a photograph's inferred depth becomes the artwork, with 
 which distances become the subject.
 
 `vathopy` is a Python port of the picture maths of the free **Vathography** Blender add-on
-(v1.0.95, © 2026 Karim Joseph Nassar). It covers the colour ramp, the depth controls, the ramp
-tilt, the Focus & Shape Bands and the Focus & Shape Areas (Add, Merge and Mask modes). Given the
+(v1.0.96, © 2026 Karim Joseph Nassar). It covers the colour ramp, the depth controls, the ramp
+tilt, the Focus & Shape Bands and the Focus & Shape Areas (Add, Merge and Mask modes), with their
+colours and colour blend modes. Given the
 same depth map and settings, it produces the same picture as the add-on's artistic export.
 
 On top of that it adds things the add-on doesn't have, all off by default: cycles and contour lines,
@@ -229,6 +230,22 @@ are, with no halos. The result is scaled back into the depth's own range. It als
 own fine noise; a little smoothing (`smooth_depth`, applied first) keeps that down. `vathopy relief` uses it
 too (the look's, or `--exaggerate A --detail-size S`).
 
+### Local contrast
+
+`local_contrast` brings out small shapes against the big steps between things, edge-aware:
+`{"amount": 0-1, "range": 0.01-0.5, "compress": 0-0.9, "enabled": true}`. It's a local Laplacian filter
+(Paris, Hasinoff & Kautz 2011, in the fast sampled form of Aubry et al. 2014) run on the depth after
+`exaggerate`:
+
+- **`amount`:** around each pixel, depth differences smaller than `range` (a share of the depth range) count
+  as detail and are boosted, more with a higher `amount`. Edges stay sharp, with no halos.
+- **`compress`:** also shrinks the bigger differences, the steps between things, so near and far come closer
+  together. That tilts the surfaces beside each step towards each other, so it's off by default.
+
+The result is scaled back into the depth's own range. It runs before the palette, so colours stay on the ramp,
+and the 3D view and 3D print use it too. CLI: `vathopy render ... --local-contrast 0.5 [--lc-range 0.1]
+[--lc-compress 0.3]` (also on `vathopy relief`).
+
 ### 3D printing
 
 `vathopy relief` writes a binary STL (millimetres) of a closed solid on a flat base, ready for a slicer:
@@ -296,6 +313,12 @@ subject isolated** (`--base BLACK` and a focus with a reach), and **several dist
     ±90° it stands upright and ignores depth, a straight stripe across the picture. **`angle=`** (degrees,
     0 = right, 90 = up) turns it (any value; the GUI's slider runs −90 to 90°, since a negative lean covers the other
     half of the circle).
+  - **`color=RRGGBB`** (sRGB hex) pushes the focus toward that colour instead of white, like the add-on's band
+    colours; **`blend=`** sets how it goes over the picture: `normal` (becomes the colour), `multiply` (darkens),
+    `screen` (lightens), `overlay`, `soft_light` or `color` (takes the hue, keeps the brightness). A coloured
+    focus needs a positive strength (a negative one does nothing), and overlapping colours with the same blend
+    average. `--base BLACK --focus 0.6:color=ff7a1a --focus 0.3:color=3399ff:blend=screen`: two distances in two
+    colours.
 - **`--base`** sets what the focus sits on: `RAMP` (default, the palette), `BLACK` or `WHITE`.
 - **`--focus-strength K`** (-1 to 1, default 1) for every focus without its own STRENGTH: 1 lifts to white, -1
   sinks to black, in between is partial.
@@ -305,8 +328,9 @@ Each focus is the add-on's own Focus & Shape Band at that depth (flat, or leaned
 add-on's mask area (an ellipsoid set to Keep) aimed at that band, so it renders exactly like the same setup
 placed in Blender. Look key: `"focus": [{"depth": 0.55, "width": 0.04, "softness": 0.03}]` (or `"at": [x, y]`),
 plus optional `"strength"`, `"enabled"`, `"lean"`, `"angle"`, `"pivot": [fx, fy]` (the point a leaned band or a
-reach is centred on, as fractions of the picture; `at` sets it), `"reach_w"`, `"reach_h"`, `"reach_edge"` and
-`"locked"` (the GUI's lock; no effect on the picture).
+reach is centred on, as fractions of the picture; `at` sets it), `"reach_w"`, `"reach_h"`, `"reach_edge"`,
+`"color"` (`[r, g, b]`, scene-linear 0–1, or null), `"color_blend"` and `"locked"` (the GUI's lock; no effect on
+the picture).
 
 ### Cycles and contour lines
 
@@ -451,6 +475,10 @@ install -e .`) means no reinstall is needed unless `requirements.txt` changed.
   which way it tips, angle turns it). Shift-click to keep picking, up to 16. Each focus has a checkbox to switch
   it off and on without losing its settings, a **Lock** checkbox that disables its sliders and its remove button
   so they can't be changed by accident, and its depth value folds its sliders away to keep a long list short.
+  **⧉ Duplicate** adds a copy right after it with the same settings at the same spot (move it to see it), as the
+  add-on's Duplicate does for bands and areas; keep shapes, targets and deleted parts have it too.
+  **Colour** pushes a focus toward a colour of your choice instead of lighter or darker, with a blend menu
+  (Normal, Multiply, Screen, Overlay, Soft light, Colour only); it works the same whatever the focus style.
   Choosing another depth map clears the focuses, since their depths belong to the old map.
 - **Highlights / Result:** while you pick and adjust, the picture shows the look without its focus, greyed,
   with each focus's region tinted in its own colour (its panel's colour), fainter the lower its strength, so
@@ -525,7 +553,8 @@ install -e .`) means no reinstall is needed unless `requirements.txt` changed.
   The picture is enlarged a little so the uncovered strips along its borders don't show.
 - **Exaggerate depth** (under Shape): makes bumps, folds and faces stand out (see Exaggerated depth); **On**
   switches it off and on without losing its settings. Detail size says how big the things it brings out are
-  (Reset puts it back to 2%). The 3D view and 3D print use it too.
+  (Reset puts it back to 2%). The 3D view and 3D print use it too. **Local contrast**, **Detail depth** and
+  **Shrink steps** below it are the edge-aware local contrast (see Local contrast).
 - **Selections:** **Pick a target**, then click a person or thing: it's selected up to its depth edges and gets a
   palette of its own (a colour, to start with). Each target has a palette menu ("Same palette as the picture"
   keeps the picture's), Reverse palette, **Stop at floors**, Everything else, and sliders for Edge (the step
@@ -626,9 +655,9 @@ Every key is optional; unknown keys are rejected so that typos don't pass silent
 | `ramp` | `{"preset": "WHITE_TO_BLACK"}` | `{"preset": KEY, "mirror": bool, "shift": k}` or `{"stops": [[pos, [r,g,b,a]], …], "interpolation", "color_mode", "hue_interpolation", "shift": k}`; colours scene-linear. `shift` (whole number, default 0) moves the colours k stops towards position 0 (the far end, the right of the GUI's swatch), wrapping round, before `mirror` |
 | `ramp_near_left` | `false` | Read the ramp with near at its left end (the add-on's default for new reliefs is `true`) |
 | `base` | `"RAMP"` | What bands/areas sit on: `RAMP`, `BLACK` or `WHITE` |
-| `bands` | `[]` | `{id, name, enabled, strength, interpolation, normal, center, width, softness}` |
-| `areas` | `[]` | `{id, name, enabled, mode: ADD/MERGE/MASK, shape: ELLIPSOID/BOX, position, radius[3], basis[3][3], reach_plus[3], reach_minus[3], strength, falloff, edge, group, mask: {strength, side: HIDE/KEEP, edge, target}}` |
-| `groups` | `{}` | Merge groups: `{"Group 1": {"strength": 1.0, "blend": 0.0}}` |
+| `bands` | `[]` | `{id, name, enabled, strength, interpolation, normal, center, width, softness, color, color_blend}` |
+| `areas` | `[]` | `{id, name, enabled, mode: ADD/MERGE/MASK, shape: ELLIPSOID/BOX, position, radius[3], basis[3][3], reach_plus[3], reach_minus[3], strength, falloff, edge, group, mask: {strength, side: HIDE/KEEP, edge, target}, color, color_blend}` |
+| `groups` | `{}` | Merge groups: `{"Group 1": {"strength": 1.0, "blend": 0.0, "color": null, "color_blend": "NORMAL"}}` |
 | `solo` | `""` | Show only one area (its name) or one band (`"BAND:<id>"`) |
 | `depth_scale` | `1.0` | vathopy: how deep the scene is relative to its width, for shape focuses and keep shapes |
 | `cut` | `null` | vathopy: the deletion slabs, `{"depth": 0-1 (from far), "near": 0-1 (from near), "softness", "fill": "black"/"white", "keep": [shapes], "remove": [parts]}` (parts: `{"point", "step", "range", "floors", "grow", "softness", "invert"}`) |
@@ -636,8 +665,14 @@ Every key is optional; unknown keys are rejected so that typos don't pass silent
 | `overlay` | `null` | vathopy: the photo over the picture, `{"opacity", "mode", "where", "grey", "invert", "enabled"}` (see Photo overlay) |
 | `view_shift` | `null` | vathopy: `{"x", "y", "strength", "pivot", "edges": "zoom"/"fill"}` (see Viewpoint shift) |
 | `exaggerate` | `null` | vathopy: `{"amount": 0-10, "size": 0.002-0.2, "enabled"}` (see Exaggerated depth) |
+| `local_contrast` | `null` | vathopy: `{"amount": 0-1, "range": 0.01-0.5, "compress": 0-0.9, "enabled"}` (see Local contrast) |
 
 Mask targets: `ALL_BANDS`, `ALL_LIGHTS`, `BAND:<id>`, `LIGHT:<area id>`, `GROUP:<name>`.
+Colours (add-on 1.0.96): `color` null = off (strength pushes toward white / black), or `[r, g, b]` scene-linear
+0–1: a positive strength pushes toward it and a negative one does nothing. `color_blend`: `NORMAL`, `MULTIPLY`,
+`SCREEN`, `OVERLAY`, `SOFT_LIGHT` or `COLOR`. Coloured terms with the same blend are averaged by their amounts and
+mixed in after the white / black sum, one blend after another in that order. The free add-on colours bands and
+areas; a merge group's colour follows the same maths.
 See `examples/demo_look.json` and `examples/template_look.json`. The latter was extracted from the
 add-on's template file.
 
@@ -645,10 +680,11 @@ add-on's template file.
 
 * `tests/bpy_parity.py` builds random reliefs with the real add-on running in headless Blender
   (`pip install bpy==5.2.2`). The random settings cover ramps, flip, scale, scene depth, held
-  ranges, controls, tilt, bands and all area modes and masks. Each relief is exported with the
-  add-on's own export code, extracted, and rendered with vathopy. Over 100 scenes the worst
-  difference was 6e-8, one float32 rounding step. Depth maps load bit-identically from EXR and
-  from 16-bit and 8-bit PNG.
+  ranges, controls, tilt, bands and all area modes and masks, and (add-on 1.0.96) band and area
+  colours in every blend mode. Each relief is exported with the add-on's own export code,
+  extracted, and rendered with vathopy. Over 150 scenes (128 with colours) the worst difference
+  was 6e-8, one float32 rounding step. Depth maps load bit-identically from EXR and from 16-bit
+  and 8-bit PNG.
 * `tests/bpy_ramp_check.py` compares the colour-ramp evaluator with Blender's on 578 ramps:
   every interpolation, RGB/HSV/HSL, all hue modes, and every preset plus its mirror.
 * `tests/test_vathopy.py` holds the unit tests that run without Blender: `pytest tests/test_vathopy.py`.

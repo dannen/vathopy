@@ -247,6 +247,12 @@
     <div class="row" title="How big the things it brings out are: small for creases and texture, large for whole faces and bodies"><span class="lab"><label for="exaggerate_size">Detail size</label>
       <button type="button" class="ghost small" id="exaggerate_size_reset" title="Back to the default, 2% of the width">Reset</button></span><output id="exaggerate_size_v"></output>
       <input type="range" id="exaggerate_size" min="0.005" max="0.1" step="0.005" value="0.02"></div>
+    <div class="row" title="Local contrast for the relief: small shapes (folds, faces, carvings) stand out against the big steps between things, with sharp edges and no halos. Also used by the 3D view and 3D print"><label for="local_contrast">Local contrast</label><output id="local_contrast_v"></output>
+      <input type="range" id="local_contrast" min="0" max="1" step="0.05" value="0"></div>
+    <div class="row" title="Depth differences smaller than this share of the depth range count as detail and are boosted; bigger ones are steps between things"><label for="lc_range">Detail depth</label><output id="lc_range_v"></output>
+      <input type="range" id="lc_range" min="0.02" max="0.3" step="0.01" value="0.1"></div>
+    <div class="row" title="Also shrink the big steps between things, so near and far come closer together. This tilts the surfaces beside each step towards each other"><label for="lc_compress">Shrink steps</label><output id="lc_compress_v"></output>
+      <input type="range" id="lc_compress" min="0" max="0.9" step="0.05" value="0"></div>
 
     <h2>Viewpoint</h2>
     <div class="row" title="Look from further left (◀) or right (▶): near things move against far ones, by their depth"><span class="lab"><label for="view_x">Left / right</label>
@@ -420,7 +426,7 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-const sliders = ["shift", "view_x", "view_y", "view_strength", "overlay_opacity", "exaggerate", "exaggerate_size", "depth_scale", "cut_depth", "cut_near", "cut_softness", "cycles", "cycles_fine", "contours", "contour_strength", "contour_width", "smooth", "supersample"];
+const sliders = ["shift", "view_x", "view_y", "view_strength", "overlay_opacity", "exaggerate", "exaggerate_size", "local_contrast", "lc_range", "lc_compress", "depth_scale", "cut_depth", "cut_near", "cut_softness", "cycles", "cycles_fine", "contours", "contour_strength", "contour_width", "smooth", "supersample"];
 let palette = "FRINGE";
 const fmt = {
   view_x: (v) => (+v === 0 ? "straight on" : `${+v > 0 ? "▶ " : "◀ "}${Math.abs(+v).toFixed(2)}`),
@@ -429,6 +435,9 @@ const fmt = {
   overlay_opacity: (v) => (+v === 0 ? "off" : `${Math.round(+v * 100)}%`),
   exaggerate: (v) => (+v === 0 ? "off" : `${(1 + +v).toFixed(1)}×` + ($("exaggerate_on").checked ? "" : " (off)")),
   exaggerate_size: (v) => `${(+v * 100).toFixed(1)}% of the width`,
+  local_contrast: (v) => (+v === 0 ? "off" : (+v).toFixed(2)),
+  lc_range: (v) => `${Math.round(+v * 100)}% of the depth`,
+  lc_compress: (v) => (+v === 0 ? "off" : (+v).toFixed(2)),
   depth_scale: (v) => `${(+v).toFixed(2)}×`,
   cut_depth: (v) => (+v === 0 ? "off" : +v >= 1 ? "everything" : (+v).toFixed(3)),
   cut_near: (v) => (+v === 0 ? "off" : +v >= 1 ? "everything" : (+v).toFixed(3)),
@@ -548,7 +557,8 @@ function buildPanels(o) {
     div.innerHTML = `<div class="head"><button type="button" class="tri"></button>`
       + `<label><input type="checkbox" class="on"> <span class="dot"></span>${name}</label>`
       + `<label class="lock" title="Lock these sliders so they can't be changed by accident"><input type="checkbox" class="lockbox"> Lock</label>`
-      + `<span><button type="button" class="fold"></button><button type="button" class="remove" title="Remove">✕</button></span></div>`
+      + `<span><button type="button" class="fold"></button><button type="button" class="dup" title="Duplicate: a copy with the same settings, at the same spot (move it to see it)">⧉</button>`
+      + `<button type="button" class="remove" title="Remove">✕</button></span></div>`
       + `<div class="shaperow"><select class="shape" aria-label="${name} shape"></select>`
       + `<select class="fill" aria-label="${name} fill"><option value="shell">Shell</option><option value="solid">Solid</option></select></div>`;
     b.open ??= true;
@@ -589,11 +599,19 @@ function buildPanels(o) {
     lock.checked = b.locked;
     lock.setAttribute("aria-label", `Lock ${name}`);
     const applyLock = () => {                       // sliders, shape and remove; on/off and folding stay usable
-      for (const el of div.querySelectorAll("input[type=range], button.remove, button.step, select")) el.disabled = b.locked;
+      for (const el of div.querySelectorAll("input[type=range], input[type=color], input.colon, button.remove, button.step, select")) el.disabled = b.locked;
       div.classList.toggle("locked", b.locked);
     };
     lock.onchange = () => { b.locked = lock.checked; applyLock(); };
     div.querySelector(".remove").onclick = () => { o.list.splice(i, 1); o.rebuild(); o.onRemove?.(); full(); };
+    const dup = div.querySelector(".dup");
+    dup.setAttribute("aria-label", `Duplicate ${name}`);
+    dup.onclick = () => {                         // like the add-on's Duplicate: same settings, same spot, right after it
+      if (o.list.length >= MAX_FOCUS) { dup.title = `${MAX_FOCUS} is the most: remove one first`; return; }
+      if (o.list.length >= 3) for (const x of o.list) x.open = false;
+      o.list.splice(i + 1, 0, { ...structuredClone(b), locked: false, open: true });
+      o.rebuild(); full();
+    };
     for (const [key, labelOf, min, max, step, shown] of o.sliders) {
       b[key] ??= o.defaults[key];
       if (shown && !shown(b)) continue;
@@ -623,10 +641,32 @@ function buildPanels(o) {
     box.appendChild(div);
   });
 }
+// A focus's colour (add-on 1.0.96 band colours): it pushes toward the colour instead of light / dark.
+const COLOUR_BLENDS = [["NORMAL", "Normal"], ["MULTIPLY", "Multiply"], ["SCREEN", "Screen"], ["OVERLAY", "Overlay"],
+                       ["SOFT_LIGHT", "Soft light"], ["COLOR", "Colour only"]];
+const COLOUR_BLEND_TIPS = "How the colour goes over the picture. Normal: becomes the colour; Multiply: darkens; Screen: lightens; "
+  + "Overlay / Soft light: more contrast, tinted; Colour only: takes the hue, keeps the brightness. Overlapping focuses average";
+function focusColourRow(div, b, name) {
+  b.color_blend ??= "NORMAL";
+  const row = document.createElement("div");
+  row.className = "checks colourrow";
+  row.innerHTML = `<label title="Push toward a colour instead of making it lighter or darker"><input type="checkbox" class="colon"> Colour</label>`
+    + `<input type="color" aria-label="${name} colour"><select class="blend" aria-label="${name} colour blend"></select>`;
+  const on = row.querySelector("input.colon"), pick = row.querySelector("input[type=color]"), blend = row.querySelector("select.blend");
+  for (const [k, label] of COLOUR_BLENDS) blend.add(new Option(label, k));
+  blend.title = COLOUR_BLEND_TIPS;
+  const show = () => { on.checked = !!b.color; pick.hidden = blend.hidden = !b.color; };
+  pick.value = b.color || b.last_color || "#ff8000"; blend.value = b.color_blend; show();
+  on.onchange = () => { b.color = on.checked ? pick.value : null; show(); full(); };
+  pick.oninput = () => { b.color = b.last_color = pick.value; preview(); };
+  pick.onchange = full;
+  blend.onchange = () => { b.color_blend = blend.value; full(); };
+  div.querySelector(".shaperow").after(row);
+}
 function buildBands() {
   buildPanels({ box: "bands", list: bands, title: "Focus", colour: (i) => FOCUS_COLOURS[i % FOCUS_COLOURS.length],
                 sliders: bandSliders, defaults: BAND_DEFAULTS, shapes: Object.keys(SHAPE_NAMES), fill: true,
-                rebuild: buildBands, onRemove: () => setView(view, false),
+                rebuild: buildBands, onRemove: () => setView(view, false), extra: focusColourRow,
                 onInput: (key) => { if (key !== "strength") setView("highlight", false); } });   // strength only shows in the result
   for (const d of $("bands").querySelectorAll(".dot")) d.title = "Its colour in the Highlights view";
   $("focus_note").textContent = bands.length ? "" : "then click the picture";

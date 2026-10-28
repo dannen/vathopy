@@ -49,9 +49,10 @@ from . import io as VIO
 from . import look as LOOK
 from . import meta as META
 from . import palettes as PAL
-from .engine import deleted, exaggerate, focus_depth_at, focus_weights, orient, render, smooth_depth, view_shift
+from .engine import (deleted, exaggerate, focus_depth_at, focus_weights, local_contrast, orient, render, smooth_depth,
+                     view_shift)
 from .probe import probe
-from .ramp import PRESETS, Ramp
+from .ramp import PRESETS, Ramp, srgb_to_linear
 
 HTML = Path(__file__).with_name("gui.html")
 STATIC = Path(__file__).with_name("static")      # three.js (MIT, see static/three-LICENSE) and the 3D view
@@ -197,6 +198,9 @@ def look_from_settings(s, preview=False):
     if float(s.get("exaggerate", 0) or 0) > 0:
         lk["exaggerate"] = {"amount": float(s["exaggerate"]), "size": float(s.get("exaggerate_size", 0.02) or 0.02),
                             "enabled": bool(s.get("exaggerate_on", True))}
+    if float(s.get("local_contrast", 0) or 0) > 0 or float(s.get("lc_compress", 0) or 0) > 0:
+        lk["local_contrast"] = {"amount": float(s.get("local_contrast", 0) or 0), "range": float(s.get("lc_range", 0.1) or 0.1),
+                                "compress": float(s.get("lc_compress", 0) or 0)}
     o = s.get("orientation") or {}
     lk["orientation"] = {"turns": int(o.get("turns", 0) or 0), "mirror": bool(o.get("mirror"))}
     style = s.get("focus_style", "off")
@@ -205,7 +209,9 @@ def look_from_settings(s, preview=False):
             raise ValueError(f"unknown focus style {style!r}")
         lk["base"], sign = FOCUS_STYLES[style]           # each focus's strength slider is 0-1; the style sets the sign
         lk["focus"] = [{"depth": float(fo["depth"]), "width": float(fo["width"]), "softness": float(fo["softness"]),
-                        "strength": sign * min(max(float(fo.get("strength", 1.0)), 0.0), 1.0),
+                        # a coloured focus always pushes toward its colour (a negative one would do nothing)
+                        "strength": (1.0 if fo.get("color") else sign) * min(max(float(fo.get("strength", 1.0)), 0.0), 1.0),
+                        **_colour_from_page(fo),
                         "enabled": bool(fo.get("enabled", True)),
                         "angle": float(fo.get("angle", 0.0)), "lean": float(fo.get("lean", 0.0)),
                         "reach_w": float(fo.get("reach_w", 0.0)), "reach_h": float(fo.get("reach_h", 0.0)),
@@ -250,12 +256,15 @@ def settings_from_look(lk):
 
 def _overlay_settings(lk):
     ov, vs, ex = lk.get("overlay") or {}, lk.get("view_shift") or {}, lk.get("exaggerate") or {}
+    lc = lk.get("local_contrast") or {}
     return {"view_x": float(vs.get("x", 0.0)), "view_y": float(vs.get("y", 0.0)), "view_strength": float(vs.get("strength", 0.05)),
             "overlay_opacity": float(ov.get("opacity", 0.0)), "overlay_mode": ov.get("mode", "normal"),
             "overlay_where": ov.get("where", "all"), "overlay_grey": bool(ov.get("grey")),
             "overlay_invert": bool(ov.get("invert")), "overlay_on": bool(ov.get("enabled", True)),
             "exaggerate": float(ex.get("amount", 0.0)), "exaggerate_size": float(ex.get("size", 0.02)),
-            "exaggerate_on": bool(ex.get("enabled", True))}
+            "exaggerate_on": bool(ex.get("enabled", True)),
+            "local_contrast": float(lc.get("amount", 0.0)), "lc_range": float(lc.get("range", 0.1)),
+            "lc_compress": float(lc.get("compress", 0.0))}
 
 
 def _slider_lean_angle(lean, angle):
@@ -267,6 +276,22 @@ def _slider_lean_angle(lean, angle):
     elif angle < -90.0:
         lean, angle = -lean, angle + 180.0
     return lean, angle
+
+
+def _colour_from_page(fo):
+    """A focus's colour, page (#rrggbb sRGB or null) -> look (linear [r, g, b] or None)."""
+    h = fo.get("color")
+    if not h:
+        return {"color": None, "color_blend": "NORMAL"}
+    if not (isinstance(h, str) and len(h) == 7 and h[0] == "#"):
+        raise ValueError(f"focus colour must be #rrggbb, not {h!r}")
+    return {"color": [srgb_to_linear(int(h[i:i + 2], 16) / 255.0) for i in (1, 3, 5)],
+            "color_blend": fo.get("color_blend") or "NORMAL"}
+
+
+def _colour_to_page(fo):
+    c = fo.get("color")
+    return {"color": _hex(_srgb8(np.asarray(c, np.float32))).lower(), "color_blend": fo.get("color_blend", "NORMAL")} if c else {}
 
 
 def _shape_from_page(fo, default):
@@ -300,7 +325,9 @@ def _focus_settings(lk):
     focus = [fo for fo in lk.get("focus") or [] if fo.get("depth") is not None]
     if not focus:
         return {"focus_style": "off", "focus": []}
-    key = (lk.get("base", "RAMP"), 1.0 if float(focus[0].get("strength", 1.0)) >= 0 else -1.0)
+    plain = [fo for fo in focus if not fo.get("color")] or [{}]     # coloured focuses are always positive
+    base = lk.get("base", "RAMP")
+    key = (base, 1.0 if float(plain[0].get("strength", -1.0 if base == "WHITE" else 1.0)) >= 0 else -1.0)
     style = next((k for k, v in FOCUS_STYLES.items() if v == key), "light")
     return {"focus_style": style, "focus": [{"depth": fo["depth"], "width": fo.get("width", 0.1),
                                              "softness": fo.get("softness", 0.05),
@@ -312,6 +339,7 @@ def _focus_settings(lk):
                                              "reach_h": float(fo.get("reach_h", 0.0)),
                                              "reach_edge": float(fo.get("reach_edge", 0.5)),
                                              "locked": bool(fo.get("locked", False)), **_shape_to_page(fo, "plane"),
+                                             **_colour_to_page(fo),
                                              **({"x": fo["pivot"][0], "y": fo["pivot"][1]} if fo.get("pivot") else {})}
                                             for fo in focus]}
 
@@ -392,8 +420,8 @@ def mesh_preview(maps, req):
     from .engine import MIN_SCALE, _window, plane_dims, remapped
     s = req.get("settings", {})
     d = maps.depth(req["map"], float(s.get("smooth", 0) or 0))
-    d = exaggerate(d, look_from_settings(s, preview=True)["exaggerate"])
     lk = look_from_settings(s, preview=True)
+    d = local_contrast(exaggerate(d, lk["exaggerate"]), lk["local_contrast"])
     f = remapped(d, lk)
     lo, hi = _window(f, lk)
     t = np.clip((f[::-1] - lo) / (hi - lo), 0.0, 1.0)

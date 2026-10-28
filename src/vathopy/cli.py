@@ -12,7 +12,7 @@ from . import io as VIO
 from . import look as LOOK
 from . import palettes as PAL
 from .engine import render
-from .ramp import PRESETS
+from .ramp import PRESETS, srgb_to_linear
 
 
 def _out_path(src, out, n_inputs, suffix, ext):
@@ -59,7 +59,7 @@ def quarter_steps_or_auto(text):
 
 
 SHAPE_FIELDS = ("size", "size_x", "size_y", "size_z", "length", "cone")
-TEXT_FIELDS = ("shape", "fill")
+TEXT_FIELDS = ("shape", "fill", "color", "blend")
 
 
 def _shape_fields(fo):
@@ -97,6 +97,13 @@ def focus_spec(text):
             r = fo.pop("reach")
             fo.setdefault("reach_w", r); fo.setdefault("reach_h", r)
         _shape_fields(fo)
+        if "color" in fo:                                    # color=RRGGBB (sRGB hex) -> linear
+            h = fo["color"].lstrip("#")
+            if len(h) != 6:
+                raise ValueError
+            fo["color"] = [srgb_to_linear(int(h[i:i + 2], 16) / 255.0) for i in (0, 2, 4)]
+        if "blend" in fo:
+            fo["color_blend"] = fo.pop("blend").upper()
         LOOK.normalise({"focus": [fo]})
     except ValueError:
         raise argparse.ArgumentTypeError(
@@ -159,6 +166,9 @@ def _look_from_args(a):
         lk["supersample"] = a.supersample
     if a.smooth_depth is not None and a.smooth_depth != "auto":
         lk["smooth_depth"] = a.smooth_depth
+    if a.local_contrast is not None:
+        lk["local_contrast"] = ({"amount": a.local_contrast, "range": a.lc_range, "compress": a.lc_compress}
+                               if a.local_contrast > 0 or a.lc_compress > 0 else None)
     if a.equalize:
         lk["equalize"] = True
     if a.window:
@@ -209,6 +219,17 @@ def cmd_probe(a):
               f"  or  --cycles {pr['cycles']:g}")
         print(f"  depth spread        middle half of the pixels spans {100 * pr['spread']:.0f}% of the range"
               + ("  -> try --equalize" if pr["suggest_equalize"] else ""))
+
+
+def _local_contrast_args(p):
+    p.add_argument("--local-contrast", type=float, metavar="A",
+                   help="local contrast for the relief (0-1): small shapes stand out, edges stay sharp "
+                        "(edge-aware local Laplacian on the depth; default the look's)")
+    p.add_argument("--lc-range", type=float, default=0.1, metavar="R",
+                   help="--local-contrast: depth differences smaller than this share of the range are boosted (default 0.1)")
+    p.add_argument("--lc-compress", type=float, default=0.0, metavar="C",
+                   help="--local-contrast: also shrink the bigger steps between things (0-0.9, default 0; tilts "
+                        "the surfaces beside each step)")
 
 
 def cmd_render(a):
@@ -266,7 +287,10 @@ def cmd_relief(a):
         sm = lk["smooth_depth"] if a.smooth_depth is None else a.smooth_depth
         ex = lk["exaggerate"] if a.exaggerate is None else (
             {"amount": a.exaggerate, "size": a.detail_size} if a.exaggerate > 0 else None)
-        seen, gone = deleted(depth, {**lk, "smooth_depth": sm, "exaggerate": ex})   # as the look sees it; what its cut takes
+        lc = lk["local_contrast"] if a.local_contrast is None else (
+            {"amount": a.local_contrast, "range": a.lc_range, "compress": a.lc_compress}
+            if a.local_contrast > 0 or a.lc_compress > 0 else None)
+        seen, gone = deleted(depth, {**lk, "smooth_depth": sm, "exaggerate": ex, "local_contrast": lc})   # as the look sees it; what its cut takes
         if gone is None or a.deleted == "keep" or not (gone > 0.5).any():
             gone = None
         else:
@@ -371,6 +395,7 @@ def main(argv=None):
     r.add_argument("--supersample", type=int, choices=(1, 2, 3, 4), metavar="N",
                    help="anti-aliasing: render at N x the resolution (1-4) and average down; smoother "
                         "contour lines and edges, about N*N x the time")
+    _local_contrast_args(r)
     r.add_argument("--smooth-depth", type=radius_or_auto, metavar="R",
                    help="edge-preserving smoothing of the depth first, radius R px (e.g. 2-6, or 'auto' "
                         "for one in proportion to the picture size); contours follow surfaces instead "
@@ -388,6 +413,8 @@ def main(argv=None):
                         "lean (-90 to 90 degrees) tilts the band so it cuts across the scene at an angle, angle "
                         "(degrees, counter-clockwise from the right) turns it. shape=ellipsoid|box|cylinder|cone "
                         "with size=, size_x/y/z=, length=, cone=, fill=shell|solid makes it a 3D shape. "
+                        "color=RRGGBB pushes it toward that colour instead of white (blend=normal|multiply|screen|"
+                        "overlay|soft_light|color). "
                         "Repeat for several distances. "
                         "With --base BLACK: a white subject on black")
     r.add_argument("--depth-scale", type=float, metavar="S",
@@ -441,6 +468,7 @@ def main(argv=None):
                     help="make the relief more pronounced: details x (1 + A) against what's round them (0-10; default the look's)")
     rl.add_argument("--detail-size", type=float, default=0.02, metavar="S",
                     help="--exaggerate: how big the details are, a share of the width (default 0.02)")
+    _local_contrast_args(rl)
     rl.add_argument("--lithophane", action="store_true",
                     help="print the rendered look as a lithophane: dark parts thick, light thin, seen lit from behind")
     rl.add_argument("--min-mm", type=float, default=0.8, metavar="MM", help="lithophane: thinnest (lightest), default 0.8")
