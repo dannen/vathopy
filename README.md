@@ -13,7 +13,7 @@ same depth map and settings, it produces the same picture as the add-on's artist
 On top of that it adds things the add-on doesn't have, all off by default: cycles and contour lines,
 smoothing, anti-aliasing and equalizing, a creative focus picked by depth (as tilted planes or 3D shapes),
 a deletion slab and deleted parts, orientation, selections with their own palette, a photo overlay, a
-viewpoint shift, exaggerated depth, 65
+viewpoint shift, exaggerated depth, edge-aware local contrast, 65
 palettes plus your own, a web GUI with a 3D view, and 3D-printable reliefs and lithophanes (STL), flat or
 wrapped round a cylinder or a sphere.
 
@@ -710,6 +710,9 @@ add-on's template file.
   [vathography.com](https://vathography.com/), [doi:10.5281/zenodo.23103262](https://doi.org/10.5281/zenodo.23103262).
 - **Marigold V2** (Apache-2.0), the depth model the practice is built on:
   [huawei-bayerlab/marigold-v2](https://github.com/huawei-bayerlab/marigold-v2).
+- **Local contrast** is the local Laplacian filter of Paris, Hasinoff and Kautz, "Local Laplacian Filters:
+  Edge-aware Image Processing with a Laplacian Pyramid" (SIGGRAPH 2011), in the fast sampled form of Aubry,
+  Paris, Hasinoff, Kautz and Durand, "Fast Local Laplacian Filters" (ACM TOG 2014).
 - The example depth maps were estimated from film stills with Marigold V2.
 
 ## Licence
