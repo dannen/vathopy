@@ -624,17 +624,19 @@ function buildPanels(o) {
       const label = typeof labelOf === "function" ? labelOf(b) : labelOf;
       const row = document.createElement("div");
       row.className = "row";
+      row.dataset.key = key;
       row.innerHTML = `<label></label><output></output><input type="range" min="${min}" max="${max}" step="${step}">`;
       row.querySelector("label").textContent = label;
       const input = row.querySelector("input"), out = row.querySelector("output");
       const text = o.text || bandText, tips = o.tips || BAND_TIPS;
-      input.value = b[key]; out.textContent = text(key, b[key]);
+      input.value = b[key]; out.textContent = text(key, b[key], b);
       const tip = typeof tips[key] === "function" ? tips[key](b) : tips[key];
       if (tip) { input.title = tip; row.querySelector("label").title = tip; }
       input.setAttribute("aria-label", `${name} ${label}`);
       input.style.accentColor = colour; out.style.color = colour;
       input.addEventListener("input", () => {
-        b[key] = +input.value; out.textContent = text(key, input.value);
+        b[key] = +input.value;
+        for (const r of div.querySelectorAll(".row[data-key]")) r.querySelector("output").textContent = text(r.dataset.key, b[r.dataset.key], b);
         if (key === "depth") showFold();
         o.onInput?.(key);
         preview();
@@ -690,17 +692,21 @@ function buildKeeps() {
 // Selections: a person or thing grown from a clicked point up to its depth edges, with its own palette.
 let sels = [];
 const SEL_COLOUR = "#b07cff";
-const SEL_SLIDERS = [["step", "Edge", 0.0005, 0.03, 0.0005], ["range", "Depth range", 0, 0.5, 0.005],
+const SEL_SLIDERS = [["step", "Edge", 0.0005, 0.03, 0.0005], ["step_fine", "Edge fine", -5, 5, 1], ["range", "Depth range", 0, 0.5, 0.005],
                      ["grow", "Grow (px)", 0, 10, 0.5], ["softness", "Soft edge (px)", 0, 10, 0.5], ["cycles", "Cycles", 0, 10, 0.25]];
-const SEL_DEFAULTS = { step: 0.003, range: 0, grow: 1, softness: 1, cycles: 0 };
+const SEL_DEFAULTS = { step: 0.003, step_fine: 0, range: 0, grow: 1, softness: 1, cycles: 0 };
 const SEL_TIPS = {
   step: "How big a depth step stops it, from one pixel to the next: lower stops at fainter edges (try lower if it spills onto what's behind), higher crosses more",
+  step_fine: "Fine-tunes Edge: adds or subtracts up to 5 steps of 0.0001",
   range: "Also keep it within this much depth of the point you clicked (off = no limit)",
   grow: "Widen it by this many pixels, to take in the soft pixels along its edge",
   softness: "Feather its edge over this many pixels",
   cycles: "Its own fringe cycles; 0 = the same as the picture",
 };
-const selText = (key, v) => (key === "step" ? (+v).toFixed(4) : key === "range" ? (+v === 0 ? "off" : (+v).toFixed(3))
+// Edge as used: the 0.0005-step slider plus Edge fine's 0.0001 steps (gui.py adds them up the same way).
+const selEdge = (b) => Math.max(0.0001, Math.round((+b.step + 0.0001 * (+b.step_fine || 0)) * 1e4) / 1e4);
+const selText = (key, v, b) => (key === "step" ? (+v).toFixed(4)
+  : key === "step_fine" ? `${+v > 0 ? "+" : +v < 0 ? "−" : "±"}${Math.abs(+v)} → ${selEdge(b).toFixed(4)}` : key === "range" ? (+v === 0 ? "off" : (+v).toFixed(3))
   : key === "cycles" ? (+v === 0 ? "as the picture" : (+v).toString()) : `${+v} px`);
 function buildSels() {
   buildPanels({ box: "sels", list: sels, title: "Target", colour: () => SEL_COLOUR, sliders: SEL_SLIDERS, defaults: SEL_DEFAULTS,
@@ -734,7 +740,7 @@ function buildSels() {
 // Deleted parts: a thing grown from a clicked point up to its depth edges, turned black or white with the cut.
 let removes = [];
 const REMOVE_COLOUR = "#e62828";
-const REMOVE_SLIDERS = SEL_SLIDERS.filter(([key]) => key !== "cycles");
+const REMOVE_SLIDERS = SEL_SLIDERS.filter(([key]) => key !== "cycles" && key !== "step_fine");
 const REMOVE_DEFAULTS = { step: 0.003, range: 0, grow: 3, softness: 1 };
 const REMOVE_TIPS = { ...SEL_TIPS, grow: "Widen it by this many pixels, to take in the soft pixels along its edge" };
 function buildRemoves() {

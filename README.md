@@ -560,7 +560,8 @@ install -e .`) means no reinstall is needed unless `requirements.txt` changed.
 - **Selections:** **Pick a target**, then click a person or thing: it's selected up to its depth edges and gets a
   palette of its own (a colour, to start with). Each target has a palette menu ("Same palette as the picture"
   keeps the picture's), Reverse palette, **Stop at floors**, Everything else, and sliders for Edge (the step
-  that stops it: lower if it spills onto what's behind), Depth range, Grow, Soft edge and its own Cycles.
+  that stops it: lower if it spills onto what's behind), Edge fine (−5…+5 steps of 0.0001 added to Edge), Depth
+  range, Grow, Soft edge and its own Cycles.
   Targets are cleared when another depth map is chosen.
 - **Photo:** finds the photo each depth map was made from in `--photos` by name (`<photo>_depth_00001.exr` comes
   from `<photo>.jpg`, `.png` or another picture type; batch uploads in `batch-*` subfolders count; the newest

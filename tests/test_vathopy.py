@@ -1007,13 +1007,14 @@ def test_gui_finds_photos_and_round_trips_the_new_settings(tmp_path):
     maps = gui.Maps(tmp_path / "depth")
     assert maps.photo_path("IMG_7_depth_00001.exr").name == "IMG_7.jpg"
     assert maps.photo_path("IMG_8_depth_00001.exr") is None
-    s = {"palette": "FRINGE", "selections": [{"x": 0.3, "y": 0.6, "step": 0.004, "range": 0.1, "floors": True, "grow": 2,
+    s = {"palette": "FRINGE", "selections": [{"x": 0.3, "y": 0.6, "step": 0.004, "step_fine": 2, "range": 0.1, "floors": True, "grow": 2,
                                              "softness": 1.5, "palette": "MAGMA", "palette_invert": True, "cycles": 3,
                                              "invert": False, "enabled": True, "locked": False}],
          "overlay_opacity": 0.4, "overlay_mode": "screen", "overlay_where": "outside", "overlay_grey": True,
          "view_x": -0.5, "view_y": 0.25, "view_strength": 0.08}
     lk = gui.look_from_settings(s)
     assert lk["selections"][0]["ramp"] == {"preset": "MAGMA", "mirror": True} and lk["view_shift"]["x"] == -0.5
+    assert lk["selections"][0]["step"] == 0.0042                                 # Edge + Edge fine
     back = gui.settings_from_look(lk)
     for k in ("overlay_opacity", "overlay_mode", "overlay_where", "overlay_grey", "view_x", "view_y", "view_strength"):
         assert back[k] == s[k], k

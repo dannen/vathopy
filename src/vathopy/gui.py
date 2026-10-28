@@ -125,9 +125,24 @@ def _ramp_to_page(ramp):
     return FRINGE, bool(stops) and stops[0][1][:3] == [1.0, 1.0, 1.0], ramp.get("shift", 0)
 
 
+EDGE_FINE = 0.0001      # one step of a target's Edge fine slider (-5..+5)
+
+
+def _edge_from_page(sel):
+    """Edge (0.0005 steps) plus Edge fine (0.0001 steps), as the page shows it."""
+    fine = min(max(round(float(sel.get("step_fine", 0) or 0)), -5), 5)
+    return max(EDGE_FINE, round(float(sel.get("step", 0.003)) + fine * EDGE_FINE, 4))
+
+
+def _edge_to_page(step):
+    """A look's step back onto the two sliders: the nearest 0.0005 step plus the rest in 0.0001s."""
+    coarse = min(max(0.0005, round(step / 0.0005) * 0.0005), 0.03)     # the Edge slider's range
+    return round(coarse, 4), min(max(round((step - coarse) / EDGE_FINE), -5), 5)
+
+
 def _selections_from_page(sels):
     return [{"point": [min(max(float(sel.get("x", 0.5)), 0.0), 1.0), min(max(float(sel.get("y", 0.5)), 0.0), 1.0)],
-             "step": float(sel.get("step", 0.003)), "range": float(sel.get("range", 0.0) or 0.0),
+             "step": _edge_from_page(sel), "range": float(sel.get("range", 0.0) or 0.0),
              "floors": bool(sel.get("floors")), "grow": float(sel.get("grow", 1.0)), "softness": float(sel.get("softness", 1.0)),
              "ramp": _page_ramp(sel["palette"], sel.get("palette_invert")) if sel.get("palette") else None,
              "cycles": float(sel["cycles"]) if float(sel.get("cycles", 0) or 0) > 0 else None,
@@ -155,7 +170,8 @@ def _selections_to_page(lk):
     for sel in lk.get("selections") or []:
         palette, pinv, _ = _ramp_to_page(sel["ramp"]) if sel.get("ramp") else ("", False, 0)
         pt = sel.get("point", [0.5, 0.5])
-        out.append({"x": pt[0], "y": pt[1], "step": sel.get("step", 0.003), "range": sel.get("range", 0.0),
+        step, fine = _edge_to_page(float(sel.get("step", 0.003)))
+        out.append({"x": pt[0], "y": pt[1], "step": step, "step_fine": fine, "range": sel.get("range", 0.0),
                     "floors": bool(sel.get("floors")), "grow": sel.get("grow", 1.0), "softness": sel.get("softness", 1.0),
                     "palette": palette, "palette_invert": pinv, "cycles": sel.get("cycles") or 0,
                     "invert": bool(sel.get("invert")), "enabled": bool(sel.get("enabled", True)),
