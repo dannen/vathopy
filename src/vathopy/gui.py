@@ -355,12 +355,35 @@ class Maps:
         self._smoothed = {}
         self._photo = (None, None)                         # ((path, mtime, map size), the photo at the map's size)
         self._photo_paths = {}                             # map name -> (when looked, photo path or None)
+        self._sizes = {}                                   # map name -> (mtime, [width, height] or None)
 
     def list(self):
         """Depth maps only: normals/albedo outputs and bench.py runs are left out."""
         skip = ("normals", "albedo", "bench_")
         return sorted(p.name for p in self.folder.glob("*.exr")      # regular files only: no symlinks
                       if p.is_file() and not p.is_symlink() and not any(k in p.name for k in skip))
+
+    def info(self, names):
+        """For sorting the list: each map's modified time (s), file size (bytes) and [width, height]
+        from its header (None when unreadable). Headers are read once per file version."""
+        out = {}
+        for name in names:
+            try:
+                st = (self.folder / name).stat()
+            except OSError:
+                continue
+            cached = self._sizes.get(name)
+            if cached is None or cached[0] != st.st_mtime_ns:
+                try:
+                    import OpenEXR
+                    with OpenEXR.File(str(self.folder / name), header_only=True) as f:
+                        (x0, y0), (x1, y1) = f.header()["dataWindow"]
+                    cached = (st.st_mtime_ns, [int(x1) - int(x0) + 1, int(y1) - int(y0) + 1])
+                except Exception:
+                    cached = (st.st_mtime_ns, None)
+                self._sizes[name] = cached
+            out[name] = {"mtime": st.st_mtime, "bytes": st.st_size, "size": cached[1]}
+        return out
 
     def depth(self, name, smooth=0.0):
         if name not in self.list():
@@ -505,7 +528,8 @@ def make_handler(maps, favourites, preview_size, auth=None, palettes_dir=None):
                 if path.startswith("/static/") and path[8:] in STATIC_FILES:
                     return self._send(200, (STATIC / path[8:]).read_bytes(), "text/javascript; charset=utf-8")
                 if path == "/api/maps":
-                    return self._send(200, {"folder": str(maps.folder), "maps": maps.list()})
+                    names = maps.list()
+                    return self._send(200, {"folder": str(maps.folder), "maps": names, "info": maps.info(names)})
                 if path == "/api/palettes":
                     PAL.register(palettes_dir, quiet=True)      # files added since: in; removed: out
                     return self._send(200, palettes())

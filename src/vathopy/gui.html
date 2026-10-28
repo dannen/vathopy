@@ -213,6 +213,11 @@
     <h1>vathopy <span class="tools"><button type="button" class="ghost small" id="theme" title="Switch between dark and light (remembered in this browser)">☀ Light</button>
       <button type="button" class="ghost small" id="side" title="Put this panel on the other side of the picture (kept for this browser session)">Move ▸</button>
       <button type="button" class="ghost small" id="reset_all" title="Forget the settings this page remembers and start again from the defaults (the theme and panel side stay)">Reset</button></span></h1>
+    <select id="map_sort" aria-label="Sort the depth maps" title="Order of the list (remembered in this browser)" style="margin-bottom:6px">
+        <option value="name">Name A–Z</option><option value="name_desc">Name Z–A</option>
+        <option value="newest">Newest first</option><option value="oldest">Oldest first</option>
+        <option value="largest">Largest file</option><option value="smallest">Smallest file</option>
+        <option value="most_px">Most pixels</option><option value="fewest_px">Fewest pixels</option></select>
     <select id="map" size="10" aria-label="Depth map (up/down arrows move to the next)"></select>
     <div class="maprow"><div class="note" id="folder"></div>
       <button type="button" class="ghost small" id="refresh" title="Look for new depth maps in the folder (R)">Refresh</button></div>
@@ -280,7 +285,8 @@
       <input type="range" id="depth_scale" min="0.1" max="4" step="0.05" value="1"></div>
 
     <h2>Cut</h2>
-    <div class="note" style="margin-top:0">The deletion slabs: Delete from far removes the far end of the depth, Delete from near the near end; either removes everything at 1.</div>
+    <div class="maprow"><div class="note" style="margin-top:0">The deletion slabs: Delete from far removes the far end of the depth, Delete from near the near end; either removes everything at 1.</div>
+      <button type="button" class="ghost small" id="cut_reset" title="Set Delete from far and Delete from near back to 0">Reset</button></div>
     <div class="row"><label for="cut_depth">Delete from far</label><output id="cut_depth_v"></output>
       <input type="range" id="cut_depth" min="0" max="1" step="0.005" value="0"></div>
     <div class="row" title="Removes everything nearer than this, counted from the nearest point: 0 = nothing, 1 = everything"><label for="cut_near">Delete from near</label><output id="cut_near_v"></output>
@@ -979,15 +985,38 @@ async function loadLooks() {
 
 // Fill the map list; keeps the selected map when it's still there. True when the
 // selection changed (so the caller re-renders).
+const SORT_KEY = "vathopy.mapsort";
+let lastMaps = null;
+const mapSorts = {
+  name: null, name_desc: (a, b, i) => b.localeCompare(a),
+  newest: (a, b, i) => (i[b]?.mtime ?? 0) - (i[a]?.mtime ?? 0), oldest: (a, b, i) => (i[a]?.mtime ?? 0) - (i[b]?.mtime ?? 0),
+  largest: (a, b, i) => (i[b]?.bytes ?? 0) - (i[a]?.bytes ?? 0), smallest: (a, b, i) => (i[a]?.bytes ?? 0) - (i[b]?.bytes ?? 0),
+  most_px: (a, b, i) => px(i[b]) - px(i[a]), fewest_px: (a, b, i) => px(i[a]) - px(i[b]),
+};
+function px(info) { return info?.size ? info.size[0] * info.size[1] : 0; }
+function mapTitle(name, info) {
+  if (!info) return name;
+  const mb = info.bytes / 1048576, when = new Date(info.mtime * 1000).toLocaleString();
+  return `${name}\n${info.size ? info.size.join(" x ") + " px, " : ""}${mb >= 1 ? mb.toFixed(1) + " MB" : Math.ceil(info.bytes / 1024) + " KB"}, ${when}`;
+}
 function fillMaps(maps) {
-  const sel = $("map"), was = sel.value;
+  const sel = $("map"), was = sel.value, info = maps.info || {};
+  lastMaps = maps;
   $("folder").textContent = maps.folder;
+  const cmp = mapSorts[$("map_sort").value];
+  const names = cmp ? [...maps.maps].sort((a, b) => cmp(a, b, info) || a.localeCompare(b)) : maps.maps;   // the server's list is by name
   sel.length = 0;
-  for (const m of maps.maps) { const o = new Option(m, m); o.title = m; sel.add(o); }
-  const keep = maps.maps.indexOf(was);
-  sel.selectedIndex = keep >= 0 ? keep : (maps.maps.length ? 0 : -1);
+  for (const m of names) { const o = new Option(m, m); o.title = mapTitle(m, info[m]); sel.add(o); }
+  const keep = names.indexOf(was);
+  sel.selectedIndex = keep >= 0 ? keep : (names.length ? 0 : -1);
   return sel.value !== was;
 }
+try { const v = localStorage.getItem(SORT_KEY); if (v in mapSorts) $("map_sort").value = v; } catch { /* name order */ }
+$("map_sort").addEventListener("change", () => {
+  try { localStorage.setItem(SORT_KEY, $("map_sort").value); } catch { /* not remembered */ }
+  if (lastMaps && fillMaps(lastMaps)) $("map").dispatchEvent(new Event("change"));
+  const o = $("map").selectedOptions[0]; if (o) o.scrollIntoView({ block: "nearest" });
+});
 
 async function init() {
   const [maps, pals] = await Promise.all([getJSON("/api/maps"), getJSON("/api/palettes")]);
@@ -1062,6 +1091,9 @@ $("shift").addEventListener("input", drawSwatchBars);
 $("view_reset").onclick = () => { if (+$("view_x").value || +$("view_y").value) { $("view_x").value = $("view_y").value = 0; showValues(); full(); } };
 $("exaggerate_size_reset").onclick = () => {
   if (+$("exaggerate_size").value !== 0.02) { $("exaggerate_size").value = 0.02; showValues(); if (+$("exaggerate").value) full(); else savePage(); }
+};
+$("cut_reset").onclick = () => {
+  if (+$("cut_depth").value || +$("cut_near").value) { $("cut_depth").value = $("cut_near").value = 0; showValues(); full(); }
 };
 $("shift_reset").onclick = () => { if (+$("shift").value !== 0) { $("shift").value = 0; showValues(); drawSwatchBars(); full(); } };
 for (const k of sliders) {

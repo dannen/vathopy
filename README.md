@@ -439,7 +439,8 @@ install -e .`) means no reinstall is needed unless `requirements.txt` changed.
   listed; files with `normals`, `albedo` or `bench_` in the name are left out. Each map is prepped (`--kind
   near-bright`) once and kept in memory, and read again if its file changes. **Refresh**, next to the folder
   path (or the R key), picks up maps added to (or removed from) the folder since the page loaded, keeping the selected map if
-  it's still there.
+  it's still there. The menu above the list sorts it by name (A–Z or Z–A), date (newest or oldest first), file
+  size or pixel count; the choice is remembered in that browser. Hover over a map for its size in px, file size and date.
 - **Panel and theme:** the buttons next to the vathopy title switch between a dark and a light theme (it follows
   the system's setting until you choose; the choice is remembered in that browser) and move the panel to the
   right or left of the picture (kept for the browser session).
@@ -537,7 +538,8 @@ install -e .`) means no reinstall is needed unless `requirements.txt` changed.
   Solid; the sliders change with the shape (sizes, radius and length, cone angle). **Depth scale** under the
   focuses stretches depth for shapes. Highlights tint a shape's region like a plane's.
 - **Cut:** **Delete from far** drags the deletion slab from the farthest depth (0, off) to the nearest (1,
-  everything); **Delete from near** does the same from the nearest depth, so both together leave a band. Edge
+  everything); **Delete from near** does the same from the nearest depth, so both together leave a band (the
+  section's **Reset** sets both back to 0). Edge
   softness fades them, and deleted parts become black or white. **Keep a shape**, then click
   the picture: a sphere there (change it to a box, rod or cone, size and turn it) survives the cut. **Delete a
   part**, then click the picture: the thing there, up to its depth edges, is deleted too (black or white, like
