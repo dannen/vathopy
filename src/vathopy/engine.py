@@ -822,35 +822,45 @@ SELECT_WORK_PX = 1536  # selections grow on the depth at most this many px acros
 FLOOR_SLOPE = 0.4      # "floors": depth rising towards the viewer faster than this per picture height, going down
 SLIVER_PX = 12            # removed parts take in thin slivers of what's left within this many px (at the work size)
 SELECT_HOLE_AREA = 0.002  # unselected pockets smaller than this share of the picture, inside a selection, are filled
-SELECT_SIZE_WORK_PX = 640  # a selection's size limit is measured along the surface on a grid at most this many px across
+SELECT_SIZE_WORK_PX = 256  # a selection's size limit is measured along the surface on a grid at most this many px across
 SELECT_SIZE_FADE = 0.15    # ... and fades out over this last share of it (a cut across a surface, not a depth edge)
+SIZE_DEPTH_COST = 1.0      # ... where climbing one Edge step of depth costs this much extra length per px moved
 
 
-def _along_surface(m, x, row, reach):
+def _along_surface(m, x, row, reach, depth=None, step=1.0):
     """How far (px of ``m``'s grid) each pixel of the 0/1 mask ``m`` is from (x, row), going through
     the mask only (a path along the surface, so it can't jump a gap): inf where it's out of reach.
-    Rings of 3 x 3 square and cross dilations, taken in turn, which measures nearly round distances."""
-    import cv2
+    Moves in 16 directions (round, not an octagon); with ``depth`` (the same grid) each move also costs
+    extra for the depth it climbs, SIZE_DEPTH_COST times its length per ``step``, so the reach spreads
+    along a surface at one depth and its outline follows the depth map."""
     h, w = m.shape
-    dist = np.full((h, w), np.inf, np.float32)
     inside = m > 0
-    front = np.zeros((h, w), np.uint8)
-    front[row, x] = 1
+    dist = np.full((h, w), np.inf, np.float32)
     dist[row, x] = 0.0
-    sq = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-    cross = cv2.getStructuringElement(cv2.MORPH_CROSS, (3, 3))
-    n = int(math.ceil(reach / 1.2)) + 1                   # the two kernels in turn average ~1.2 px a step
-    for i in range(1, n + 1):
-        grown = cv2.dilate(front, sq if i % 2 else cross) & inside.astype(np.uint8)
-        new = (grown > 0) & ~np.isfinite(dist)
-        if not new.any():
+    moves = [(dy, dx) for dy in (-2, -1, 0, 1, 2) for dx in (-2, -1, 0, 1, 2)
+             if (dy, dx) != (0, 0) and math.gcd(abs(dy), abs(dx)) == 1]          # 16 directions
+    p = 2
+    dp = None if depth is None else np.pad(depth.astype(np.float32), p, mode="edge")
+    for _ in range(int(math.ceil(reach)) + 2):
+        pd = np.pad(dist, p, constant_values=np.inf)
+        best = dist.copy()
+        for dy, dx in moves:
+            src = pd[p + dy:p + dy + h, p + dx:p + dx + w]
+            cost = np.float32(math.hypot(dy, dx))
+            if dp is not None:
+                climb = np.abs(depth - dp[p + dy:p + dy + h, p + dx:p + dx + w]) / np.float32(step)
+                cost = cost * (1.0 + np.float32(SIZE_DEPTH_COST) * climb)
+            np.minimum(best, src + cost, out=best)
+        best[~inside] = np.inf
+        best[row, x] = 0.0
+        best[best > reach * 1.5] = np.inf                  # no need to follow paths past the reach
+        if np.array_equal(np.isfinite(best), np.isfinite(dist)) and np.allclose(best[np.isfinite(best)], dist[np.isfinite(dist)]):
             break
-        dist[new] = i * 1.2
-        front = grown
+        dist = best
     return dist
 
 
-def size_weight(m, x, row, size, sw):
+def size_weight(m, x, row, size, sw, depth=None, step=1.0):
     """A selection's ``size`` limit on its 0/1 mask ``m`` (the work grid, ``sw`` px wide; the point at
     column x, row ``row``): 1 within ``size`` x the picture's width of the point, measured along the
     selected surface, fading to 0 over the last part, so only what's local to the point is kept (one
@@ -863,7 +873,10 @@ def size_weight(m, x, row, size, sw):
     reach = size * sw * k
     xs, rs = min(int(x * k), sm.shape[1] - 1), min(int(row * k), sm.shape[0] - 1)
     sm[rs, xs] = 1
-    dist = _along_surface(sm, xs, rs, reach)
+    sd = None
+    if depth is not None:
+        sd = cv2.resize(depth.astype(np.float32), (sm.shape[1], sm.shape[0]), interpolation=cv2.INTER_AREA) if k < 1.0 else depth
+    dist = _along_surface(sm, xs, rs, reach, sd, step)
     fade = max(SELECT_SIZE_FADE * reach, 2.0)
     wt = np.clip((reach - dist) / fade, 0.0, 1.0).astype(np.float32)
     wt = cv2.GaussianBlur(wt, (0, 0), 1.0) if min(wt.shape) > 4 else wt
@@ -920,7 +933,7 @@ def selection_mask(t, sel, px_scale=1, stop=None):
     m = cv2.resize(m.astype(np.float32), (w, h), interpolation=cv2.INTER_LINEAR) if (sh, sw) != (h, w) else m.astype(np.float32)
     m = (m >= 0.5).astype(np.float32)
     if sel.get("size", 0.0) > 0:                         # only what's local to the point, measured along the surface
-        wt = size_weight(block[1:-1, 1:-1] == 2, x, row, sel["size"], sw)
+        wt = size_weight(block[1:-1, 1:-1] == 2, x, row, sel["size"], sw, small, max(float(sel["step"]), 1e-4))
         m = m * (cv2.resize(wt, (w, h), interpolation=cv2.INTER_LINEAR) if wt.shape != (h, w) else wt)
     g = sel["grow"] * px_scale
     if g >= 0.5:
@@ -1093,7 +1106,7 @@ def view_shift(depth, vs, photo=None):
 
 # --- reshape (vathopy only) -------------------------------------------------------------------
 
-RESHAPE_BULGE = 0.9     # a bulge of amount 1 magnifies its centre 1 / (1 - this) times
+RESHAPE_BULGE = 0.9     # a bulge of amount 1 magnifies its centre 1 / (1 - this) times (3: about 50 times)
 RESHAPE_COVER_TOL = 0.02  # a moved thing goes behind what's nearer than it by this share of the depth range (twice: fully)
 RESHAPE_EDGE = 0.02     # where the two sides differ by about this share of the depth range, the blend turns hard
 
@@ -1177,7 +1190,10 @@ def reshape(depth, lk, photo=None):
             if r["kind"] == "bulge":
                 if r["amount"] == 0.0:
                     continue
-                f = 1.0 - np.float32(RESHAPE_BULGE * r["amount"]) * q       # where each pixel comes from: nearer the centre
+                a = r["amount"]
+                f = 1.0 - np.float32(RESHAPE_BULGE * min(a, 1.0)) * q        # where each pixel comes from: nearer the centre
+                if a > 1.0:                                                   # past 1: the centre keeps swelling, never folds
+                    f = f / (1.0 + np.float32(2.0 * (a - 1.0)) * q)
                 mx, my = np.float32(cx) + dx * f, np.float32(cy) + dy * f
             else:
                 if r["distance"] == 0.0:

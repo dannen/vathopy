@@ -108,6 +108,7 @@
   main.actual .work { align-items: flex-start; max-width: none; }
   main.actual #view, main.actual #view2, main.actual #pair.on #viewbox { max-width: none; max-height: none; }
   main #view.picking, main #view2.picking { cursor: crosshair; }
+  body.lens-on #view, body.lens-on #view2 { cursor: none; }      /* the lens shows where the mouse is */
   #pick, #pick_keep, #pick_sel, #pick_remove, #pick_reshape, #download, #save_local, #pairbtn, #download2, #save_local2 { display: inline-flex; align-items: center; gap: 7px; }
   #download .icon, #save_local .icon, #download2 .icon, #save_local2 .icon { width: 18px; height: 18px; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; fill: none; flex: none; }
   #pick .plus, #pick_keep .plus, #pick_sel .plus, #pick_remove .plus, #pick_reshape .plus { width: 20px; height: 20px; stroke: currentColor; stroke-width: 3.2; stroke-linecap: round; flex: none; }
@@ -152,7 +153,7 @@
     border: 2px solid var(--focus); box-shadow: 0 4px 18px var(--shadow); background-repeat: no-repeat; background-color: var(--bg);
     image-rendering: pixelated; }
   #lens[hidden] { display: none; }
-  #lens span { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); background: var(--overlay); color: var(--overlay-text);
+  #lens span { position: absolute; left: 50%; top: calc(100% + 8px); transform: translateX(-50%); background: var(--overlay); color: var(--overlay-text);
     font-size: 11px; padding: 1px 6px; border-radius: 4px; line-height: 1.4; }
   #tabs button { background: none; border: 0; color: var(--dim); font: inherit; padding: 5px 12px; border-radius: 6px; cursor: pointer; }
   #tabs button[aria-selected=true] { background: var(--accent); color: #1b1006; font-weight: 600; }
@@ -192,6 +193,17 @@
     padding: 4px 6px; font: inherit; font-variant-numeric: tabular-nums; }
   .nums [hidden] { display: none; }
   .nums input:disabled { opacity: .45; }
+  #v3d_bar { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+  #v3d_bar span, #v3d_dock { display: none; }
+  #v3d_bar button { margin-top: 0; }
+  #v3d_box.floating { position: fixed; right: 20px; bottom: 20px; width: 416px; height: 336px; min-width: 240px; min-height: 200px;
+    z-index: 5; resize: both; overflow: hidden; display: flex; flex-direction: column; padding: 0 10px 8px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 24px var(--shadow); }
+  #v3d_box.floating #v3d_bar { justify-content: space-between; margin-top: 0; padding: 6px 0; cursor: move;
+    color: var(--dim); font-size: 12.5px; user-select: none; }
+  #v3d_box.floating #v3d_bar span, #v3d_box.floating #v3d_dock { display: inline; }
+  #v3d_box.floating #v3d { flex: 1; height: auto; min-height: 0; margin-top: 0; }
+  #v3d_box.floating #v3d_float { display: none; }
   #v3d { display: block; width: 100%; height: 240px; margin-top: 8px; border: 1px solid var(--line); border-radius: 6px;
     background: var(--bg); cursor: grab; touch-action: none; }
   #stl_download, #stl_save { display: inline-flex; align-items: center; gap: 7px; }
@@ -335,9 +347,13 @@
 
     <h2>3D view</h2>
     <div class="note" style="margin-top:0">Where the shapes, focuses and cuts sit in the scene (or, with 3D print set to a cylinder or sphere, the picture wrapped round it): drag to turn it, scroll to zoom, right-drag to move; double-click for the start view.</div>
+    <div id="v3d_slot"></div>
+    <div id="v3d_box"><div id="v3d_bar"><span>3D view</span>
+      <button type="button" class="ghost small" id="v3d_float" title="Take the 3D view out of the sidebar into a window of its own over the page: drag its bar to move it, its corner to resize it">Detach</button>
+      <button type="button" class="ghost small" id="v3d_dock" title="Put the 3D view back in the sidebar">Dock</button></div>
     <canvas id="v3d" aria-label="3D view of the depth map with the shapes and cuts"></canvas>
     <div class="checks"><label><input type="checkbox" id="v3d_surface" checked> Surface</label>
-      <button type="button" class="ghost small" id="v3d_home" style="margin-top:0">Start view</button></div>
+      <button type="button" class="ghost small" id="v3d_home" style="margin-top:0" title="Back to the start view (or double-click the view)">Reset</button></div></div>
     <div class="note" id="v3d_note"></div>
 
     <h2>Quality</h2>
@@ -371,10 +387,10 @@
     <div class="maprow"><div class="note" id="crop_size"></div>
       <label class="lock" title="Keep this crop when another depth map is picked (otherwise it goes back to 0)"><input type="checkbox" id="crop_lock"> Lock</label>
       <button type="button" class="ghost small" id="crop_reset" title="Set every side back to 0">Reset</button></div>
-    <div class="inline"><button class="ghost" id="crop_save" title="Write <map>-cropped.exr into the depth-map folder on the machine running vathopy (replaces an earlier crop of this map)" disabled>
-      <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 3.5h9.5L16.5 6.5v10h-12.5zM7 3.5v4h6v-4M7 16.5v-5h6v5"/></svg>Save local</button>
-      <button class="ghost" id="crop_download" title="Download <map>-cropped.exr to this browser; nothing is written on the server" disabled>
-      <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 16.5h12"/></svg>Download EXR</button></div>
+    <div class="inline"><button class="ghost" id="crop_save" title="The cropped depth map (not the picture): write <map>-cropped.exr into the depth-map folder on the machine running vathopy (replaces an earlier crop of this map)" disabled>
+      <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 3.5h9.5L16.5 6.5v10h-12.5zM7 3.5v4h6v-4M7 16.5v-5h6v5"/></svg>Save cropped EXR</button>
+      <button class="ghost" id="crop_download" title="The cropped depth map (not the picture): download <map>-cropped.exr to this browser; nothing is written on the server" disabled>
+      <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 16.5h12"/></svg>Download cropped EXR</button></div>
     <div class="note" id="crop_note"></div>
 
     <h2>3D print</h2>
@@ -426,7 +442,9 @@
       <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 3.5h9.5L16.5 6.5v10h-12.5zM7 3.5v4h6v-4M7 16.5v-5h6v5"/></svg>Save inverse</button>
       <button class="ghost" id="download2" hidden title="Download the inverse (right) at full quality as a 16-bit PNG, named …_inverse">
       <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 16.5h12"/></svg>Download inverse</button>
-      <button class="ghost" id="pairbtn" aria-pressed="false" title="Show the inverse (Invert flipped) beside the picture">Side by side</button>
+      <button class="ghost" id="pairbtn" aria-pressed="false" title="Show a second picture beside this one: the inverse, or the picture before and after reshaping">Side by side</button>
+      <select id="pair_kind" aria-label="What Side by side shows" title="What Side by side shows" style="width:auto">
+        <option value="inverse">Inverse</option><option value="reshape">Before / after reshaping</option></select>
       <button class="ghost" id="pinsbtn" aria-pressed="true" title="Show each focus's and keep shape's point on the picture (P). Drag one to move it: it takes the depth under its new place; hold Shift as you let go to keep its depth. A click opens its panel">Points</button></div>
       <div class="btns orient" role="group" aria-label="Orientation">
       <button class="ghost" id="rot_ccw" title="Turn the picture 90° counter-clockwise"><span class="glyph" aria-hidden="true">⟲</span>90°</button>
@@ -788,14 +806,15 @@ function buildRemoves() {
 // pick a thing round the clicked spot like a target (Size keeps it local: one arm, not both); Bulge and
 // Push work on a round brush there.
 let reshapes = [];
-const RESHAPE_COLOUR = "#2ec4b6";
+const RESHAPE_COLOURS = ["#2ec4b6", "#f4a261", "#e76f51", "#8ab17d", "#9d4edd", "#ffb703", "#4cc9f0", "#f15bb5"];   // as gui.py
+const reshapeColour = (i) => RESHAPE_COLOURS[i % RESHAPE_COLOURS.length];
 const RESHAPE_SHORT = { scale: "Grow", depth: "Depth", bulge: "Bulge", push: "Push" };   // a folded panel's label
 Object.assign(SHAPE_NAMES, { scale: "Grow / shrink", depth: "Nearer / farther", bulge: "Bulge / pinch", push: "Push / stretch" });
 const picks = (b) => b.shape === "scale" || b.shape === "depth" || !!b.only;   // works on the thing round the spot
 const RESHAPE_SLIDERS = [["scale", "Scale", 0.25, 3, 0.01, (b) => b.shape === "scale"],
                          ["offset", "Nearer / farther", -0.5, 0.5, 0.01, (b) => b.shape === "depth"],
                          ["relief", "Relief", 0, 3, 0.05, (b) => b.shape === "depth"],
-                         ["amount", "Amount", -1, 1, 0.02, (b) => b.shape === "bulge"],
+                         ["amount", "Amount", -3, 3, 0.02, (b) => b.shape === "bulge"],
                          ["angle", "Direction (°)", -180, 180, 1, (b) => b.shape === "push"],
                          ["distance", "Distance", 0, 0.5, 0.002, (b) => b.shape === "push"],
                          ["radius", "Radius", 0.01, 1, 0.005, (b) => b.shape === "bulge" || b.shape === "push"],
@@ -804,7 +823,7 @@ const RESHAPE_SLIDERS = [["scale", "Scale", 0.25, 3, 0.01, (b) => b.shape === "s
                          ["range", "Depth range", 0, 0.5, 0.005, picks],
                          ["grow", "Grow (px)", 0, 10, 0.5, picks], ["softness", "Soft edge (px)", 0, 20, 0.5, picks]];
 const RESHAPE_DEFAULTS = { scale: 1.15, offset: 0, relief: 1, amount: 0.3, angle: 0, distance: 0.03, radius: 0.1,
-                           size: 0.1, size_fine: 0, step: 0.003, step_fine: 0, range: 0, grow: 1, softness: 3 };
+                           size: 0, size_fine: 0, step: 0.003, step_fine: 0, range: 0, grow: 1, softness: 3 };
 const RESHAPE_PICKING = new Set(["size", "size_fine", "step", "step_fine", "range", "grow", "softness", "radius"]);   // what it works on
 const RESHAPE_TIPS = {
   scale: "How much bigger (above 1) or smaller (below 1) it gets; what it uncovers is filled from the background",
@@ -831,7 +850,7 @@ const reshapeText = (key, v, b) => (key === "size" ? (+v === 0 ? "unlimited" : (
   : key === "angle" ? `${+v}°`
   : key === "radius" || key === "distance" ? (+v).toFixed(3) : `${+v} px`);
 function buildReshapes() {
-  buildPanels({ box: "reshapes", list: reshapes, title: "Reshape", colour: () => RESHAPE_COLOUR, sliders: RESHAPE_SLIDERS,
+  buildPanels({ box: "reshapes", list: reshapes, title: "Reshape", colour: reshapeColour, sliders: RESHAPE_SLIDERS,
                 defaults: RESHAPE_DEFAULTS, shapes: ["scale", "depth", "bulge", "push"], fill: false, rebuild: buildReshapes,
                 text: reshapeText, tips: RESHAPE_TIPS, foldText: (b) => b.open ? "" : RESHAPE_SHORT[b.shape],
                 onInput: (key) => setView(RESHAPE_PICKING.has(key) ? "highlight" : "result", false),
@@ -872,7 +891,7 @@ function buildReshapes() {
                   reset.style.marginLeft = "auto";
                   reset.title = "Set this reshape's sliders and boxes back to the defaults (the spot and the kind stay)";
                   reset.onclick = () => {
-                    Object.assign(b, RESHAPE_DEFAULTS, { anchor: "centre", floors: false, invert: false, only: false });
+                    Object.assign(b, RESHAPE_DEFAULTS, { anchor: "centre", floors: true, invert: false, only: false });
                     buildReshapes(); full();
                   };
                   checks.appendChild(reset);
@@ -902,7 +921,7 @@ function drawPins() {
                  [keeps, "K", () => KEEP_COLOUR, "keeps", buildKeeps, "Keep", true],
                  [sels, "T", () => SEL_COLOUR, "sels", buildSels, "Target", false],
                  [removes, "D", () => REMOVE_COLOUR, "removes", buildRemoves, "Deleted part", false],
-                 [reshapes, "R", () => RESHAPE_COLOUR, "reshapes", buildReshapes, "Reshape", false]];
+                 [reshapes, "R", reshapeColour, "reshapes", buildReshapes, "Reshape", false]];
   for (const [list, tag, colour, panelBox, rebuild, title, hasDepth] of lists) list.forEach((b, i) => {
     if (b.x == null || b.y == null) return;      // a focus from a Blender look: no point on the picture
     const pin = document.createElement("div");
@@ -1001,10 +1020,29 @@ async function getJSON(url, body) {
 // Every request gets an increasing id; a response is shown only if nothing newer has been shown,
 // and a preview is dropped once a full render has been asked for after it.
 let reqId = 0, shownId = 0, fullAskedId = 0, previewBusy = false, previewWaiting = false, lastURL = null, lastURL2 = null;
-let pair = false;                                  // the inverse (Invert flipped) rendered beside the picture
-async function fetchRender(s, quality) {
+let pair = false;                                  // a second picture beside the first (Side by side)
+// What the two pictures show: [left settings, left view, right settings, right view]. Inverse: the picture
+// and the inverse (Invert flipped). Before / after reshaping: without the Reshape panels (in Highlights,
+// the picked areas tinted instead), and with them.
+function pairSettings(s) {
+  if ($("pair_kind").value === "reshape")
+    return [view === "highlight" ? s : { ...s, reshape: [] }, view, s, "result"];
+  return [s, view, { ...s, invert: !s.invert }, view];
+}
+function showPairButtons() {
+  const before = $("pair_kind").value === "reshape";
+  $("save_local2").lastChild.textContent = before ? "Save reshaped" : "Save inverse";
+  $("download2").lastChild.textContent = before ? "Download reshaped" : "Download inverse";
+  $("save_local2").title = before ? "Save the reshaped picture (right) at full quality as a 16-bit PNG in the favourites folder"
+    : "Save the inverse (right) at full quality as a 16-bit PNG in the favourites folder, named …_inverse";
+  $("download2").title = before ? "Download the reshaped picture (right) at full quality as a 16-bit PNG"
+    : "Download the inverse (right) at full quality as a 16-bit PNG, named …_inverse";
+  $("save_local").lastChild.textContent = pair && before ? "Save original" : "Save local";
+  $("download").lastChild.textContent = pair && before ? "Download original" : "Download PNG";
+}
+async function fetchRender(s, quality, as = view) {
   const r = await fetch("/api/render", { method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ map: $("map").value, settings: s, quality, view }) });
+    body: JSON.stringify({ map: $("map").value, settings: s, quality, view: as }) });
   if (!r.ok) throw new Error((await r.json()).error);
   return [r, await r.blob()];
 }
@@ -1016,9 +1054,9 @@ async function render(quality) {
   if (quality === "full") fullAskedId = id; else previewBusy = true;
   $("status").textContent = quality === "full" ? "rendering…" : "preview…";
   try {
-    const s = settings(), withPair = pair;
-    const [[r, blob], second] = await Promise.all([fetchRender(s, quality),
-      withPair ? fetchRender({ ...s, invert: !s.invert }, quality) : null]);
+    const withPair = pair, [s1, v1, s2, v2] = withPair ? pairSettings(settings()) : [settings(), view];
+    const [[r, blob], second] = await Promise.all([fetchRender(s1, quality, v1),
+      withPair ? fetchRender(s2, quality, v2) : null]);
     if (id < shownId || (quality === "preview" && fullAskedId > id)) return;
     shownId = id;
     if (lastURL) URL.revokeObjectURL(lastURL);
@@ -1031,7 +1069,7 @@ async function render(quality) {
     if (mw && mh) { mapSize = { w: mw, h: mh }; clampCrop(); }
     $("view").src = lastURL; $("view").hidden = false; $("empty").hidden = true; $("below").hidden = false;
     fitView(); drawPins();
-    $("status").textContent = `${view === "highlight" ? "highlights · " : ""}${withPair ? "with inverse · " : ""}${quality} · ${r.headers.get("X-Size")} · ${r.headers.get("X-Render-Ms")} ms`;
+    $("status").textContent = `${view === "highlight" ? "highlights · " : ""}${withPair ? ($("pair_kind").value === "reshape" ? "before / after · " : "with inverse · ") : ""}${quality} · ${r.headers.get("X-Size")} · ${r.headers.get("X-Render-Ms")} ms`;
   } catch (e) {
     $("status").textContent = "error: " + e.message;
   } finally {
@@ -1173,7 +1211,7 @@ let restoring = false;
 function savePage() {
   if (restoring || !$("map").value) return;
   const stl = Object.fromEntries(STL_FIELDS.map((id) => [id, $(id).type === "checkbox" ? $(id).checked : $(id).value]));
-  const page = { map: $("map").value, settings: settings(), name: $("name").value, crop, pair, stl,
+  const page = { map: $("map").value, settings: settings(), name: $("name").value, crop, pair, pairKind: $("pair_kind").value, stl,
                  cropLock: $("crop_lock").checked, fineLock: $("cycles_fine_lock").checked, pins: pinsOn };
   try { localStorage.setItem(PAGE_KEY, JSON.stringify(page)); } catch { /* not remembered */ }
 }
@@ -1191,6 +1229,8 @@ function restorePage(maps) {
     $("cycles_fine_lock").dispatchEvent(new Event("change"));
     if (p.pins === false) { pinsOn = false; $("pinsbtn").setAttribute("aria-pressed", false); }
     if (p.pair) { pair = true; $("pairbtn").setAttribute("aria-pressed", true); $("save_local2").hidden = $("download2").hidden = false; }
+    if (p.pairKind === "reshape" || p.pairKind === "inverse") $("pair_kind").value = p.pairKind;
+    showPairButtons();
     for (const [id, v] of Object.entries(p.stl || {})) {
       const el = $(id);
       if (el) el.type === "checkbox" ? (el.checked = !!v) : (el.value = v);
@@ -1260,8 +1300,9 @@ $("refresh").addEventListener("click", async () => {
 $("pairbtn").onclick = () => {
   pair = !pair; $("pairbtn").setAttribute("aria-pressed", pair);
   $("save_local2").hidden = $("download2").hidden = !pair;
-  full();
+  showPairButtons(); full(); savePage();
 };
+$("pair_kind").onchange = () => { showPairButtons(); if (pair) full(); savePage(); };
 const onPicture = async (ev) => {
   if (!picking) return;                            // a click only does something while picking a spot
   const target = picking;
@@ -1280,7 +1321,7 @@ const onPicture = async (ev) => {
     if (reshapes.length >= MAX_FOCUS) { $("reshape_note").textContent = `${MAX_FOCUS} is the most: remove one first`; return; }
     if (reshapes.length >= 3) for (const o of reshapes) o.open = false;
     reshapes.push({ x: +x.toFixed(4), y: +y.toFixed(4), shape: "scale", ...RESHAPE_DEFAULTS, anchor: "centre",
-                    floors: false, invert: false, enabled: true, open: true });
+                    floors: true, invert: false, enabled: true, open: true });   // stops at the floor it stands on
     $("reshape_note").textContent = "";
     buildReshapes(); setView("highlight", false); full();
     return;
@@ -1395,11 +1436,12 @@ document.addEventListener("click", (ev) => {
 
 // Magnifier: a 200 px circle that follows the mouse over either picture and shows the picture under
 // it at `lensZoom` times its size on screen (the rendered picture's own pixels, unsmoothed).
-const LENS_PX = 200, LENS_ZOOMS = [1.5, 2, 3, 4, 6, 8, 12, 16];
+const LENS_PX = 200, LENS_ZOOMS = Array.from({ length: 30 }, (_, i) => 1.5 + 0.5 * i);   // 1.5× to 16× in steps of 0.5
 let lensOn = false, lensZoom = 3, lensAt = null;     // lensAt: the last mouse position over a picture
 function setLens(on) {
   lensOn = on;
   $("lensbtn").setAttribute("aria-pressed", on);
+  document.body.classList.toggle("lens-on", on);
   if (!on) $("lens").hidden = true; else if (lensAt) drawLens(lensAt);
 }
 function pictureAt(x, y) {
@@ -1532,11 +1574,15 @@ $("save").onclick = async () => {
   } catch (e) { $("saved").textContent = "save failed: " + e.message; }
 };
 
-// What Save local / Download PNG send: the picture, or (inverse) the one beside it, named …_inverse.
-function exportRequest(inverse) {
-  const s = settings();
-  if (!inverse) return { map: $("map").value, settings: s, name: $("name").value };
-  return { map: $("map").value, settings: { ...s, invert: !s.invert }, name: ($("name").value.trim() || "vathopy") + "_inverse" };
+// What Save local / Download PNG send: the picture, or (second) the one beside it. Inverse: the right one is
+// named …_inverse. Before / after reshaping: the left one (without reshaping) is named …_original.
+function exportRequest(second) {
+  const s = settings(), base = $("name").value.trim() || "vathopy";
+  if (pair && $("pair_kind").value === "reshape")
+    return second ? { map: $("map").value, settings: s, name: $("name").value }
+      : { map: $("map").value, settings: { ...s, reshape: [] }, name: base + "_original" };
+  if (!second) return { map: $("map").value, settings: s, name: $("name").value };
+  return { map: $("map").value, settings: { ...s, invert: !s.invert }, name: base + "_inverse" };
 }
 async function saveLocal(btn, inverse) {
   btn.disabled = true; $("downloaded").textContent = "saving the PNG…";
@@ -1801,7 +1847,8 @@ try { setSide(sessionStorage.getItem(SIDE_KEY) === "right"); } catch { setSide(f
 // The 3D view (static/view3d.js, three.js): loaded the first time its section is open, then kept up
 // to date with every render request.
 let view3d = null, view3dLoading = false;
-const section3dOpen = () => !$("v3d").closest(".section")?.hidden;
+const v3dFloating = () => $("v3d_box").classList.contains("floating");
+const section3dOpen = () => v3dFloating() || !$("v3d").closest(".section")?.hidden;
 async function update3d() {
   if (!section3dOpen() || view3dLoading) return;
   if (!view3d) {
@@ -1823,6 +1870,29 @@ async function update3d() {
 $("v3d_surface").addEventListener("change", update3d);
 $("view").addEventListener("load", () => { if (view3d && $("stl_wrap").value !== "flat") view3d.update(); });   // its texture
 $("v3d_home").onclick = () => view3d?.home();
+// Detach: the 3D view's box moves out of the sidebar (so folding its section doesn't hide it) into a
+// window over the page, dragged by its bar and resized by its corner; Dock puts it back in its place.
+function setFloat3d(on) {
+  const box = $("v3d_box");
+  box.classList.toggle("floating", on);
+  if (on) document.body.appendChild(box);
+  else { $("v3d_slot").after(box); box.style.left = box.style.top = box.style.width = box.style.height = ""; box.style.right = box.style.bottom = ""; }
+  update3d();
+}
+$("v3d_float").onclick = () => setFloat3d(true);
+$("v3d_dock").onclick = () => setFloat3d(false);
+$("v3d_bar").addEventListener("pointerdown", (ev) => {
+  if (ev.target.closest("button")) return;
+  const box = $("v3d_box"), r = box.getBoundingClientRect(), dx = ev.clientX - r.left, dy = ev.clientY - r.top;
+  box.style.right = box.style.bottom = "auto";
+  const move = (e) => {
+    box.style.left = `${Math.min(Math.max(e.clientX - dx, 0), innerWidth - 60)}px`;
+    box.style.top = `${Math.min(Math.max(e.clientY - dy, 0), innerHeight - 40)}px`;
+  };
+  move(ev);
+  const up = () => { removeEventListener("pointermove", move); removeEventListener("pointerup", up); };
+  addEventListener("pointermove", move); addEventListener("pointerup", up);
+});
 
 // Collapsible sidebar sections: a ▾/▸ on the left of each heading, remembered in this browser.
 const COLLAPSED_KEY = "vathopy.collapsed";

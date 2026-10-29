@@ -294,14 +294,17 @@ def look_from_settings(s, preview=False):
     return LOOK.normalise(lk)
 
 
-RESHAPE_COLOUR = (46, 196, 182)
+RESHAPE_COLOURS = ((46, 196, 182), (244, 162, 97), (231, 111, 81), (138, 177, 125), (157, 78, 221), (255, 183, 3),
+                   (76, 201, 240), (241, 91, 181))              # each reshape item's own colour, as gui.html
 
 
 def _reshape_weights(depth, lk):
-    """What each switched-on reshape item works on, 0..1 (rows bottom-up): the thing it picked, its brush, or both."""
+    """What each reshape item works on, 0..1 (rows bottom-up): the thing it picked, its brush, or both; None
+    for one that's switched off (it keeps its colour slot)."""
     out = []
     for r in lk["reshape"]:
         if not r["enabled"]:
+            out.append(None)
             continue
         if r["kind"] in ("depth", "scale"):
             out.append(E._region(depth, lk, r))
@@ -329,9 +332,11 @@ def highlight(depth, lk):
         k = min(abs(float(lk["focus"][i]["strength"])), 1.0)
         a = HIGHLIGHT_ALPHA * (0.2 + 0.8 * k) * np.clip(w[..., None], 0.0, 1.0)   # strength 0: only a faint tint
         rgb = rgb * (1.0 - a) + (np.asarray(FOCUS_COLOURS[i % len(FOCUS_COLOURS)], np.float32) / 255.0) * a
-    for w in _reshape_weights(depth, lk):
+    for i, w in enumerate(_reshape_weights(depth, lk)):
+        if w is None:
+            continue
         a = HIGHLIGHT_ALPHA * np.clip(w[..., None], 0.0, 1.0)
-        rgb = rgb * (1.0 - a) + (np.asarray(RESHAPE_COLOUR, np.float32) / 255.0) * a
+        rgb = rgb * (1.0 - a) + (np.asarray(RESHAPE_COLOURS[i % len(RESHAPE_COLOURS)], np.float32) / 255.0) * a
     return orient(np.round(rgb[::-1] * 255).astype(np.uint8), lk["orientation"])   # the tints are in map space
 
 

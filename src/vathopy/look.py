@@ -117,7 +117,7 @@ extracted from Blender render exactly as before):
   makes its own relief deeper or flatter (``relief``, 0-3, 1 = as is); ``"scale"`` makes a thing bigger or
   smaller (``scale``, 0.25-3) about its centre or its bottom (``anchor``), filling what it uncovers from the
   background; both pick the thing like a selection (``point``, ``step``, ``range``, ``floors``, ``grow``,
-  ``softness``, ``invert``, ``size``). ``"bulge"`` swells (``amount`` > 0) or pinches (< 0, -1 to 1) round
+  ``softness``, ``invert``, ``size``). ``"bulge"`` swells (``amount`` > 0) or pinches (< 0, -3 to 3) round
   ``point`` within ``radius`` (a share of the width, 0.01-1); ``"push"`` moves what's round ``point`` by
   ``distance`` (a share of the width, 0-0.5) towards ``angle`` (degrees, 0 = right, 90 = up), fading out at
   ``radius``, which stretches a limb. With ``only`` true a bulge or push works only on the thing it picks
@@ -416,8 +416,8 @@ def normalise(look):
             r[key] = float(r[key])
         r["locked"], r["only"] = bool(r["locked"]), bool(r["only"])
         if not (-0.5 <= r["offset"] <= 0.5 and 0.0 <= r["relief"] <= 3.0 and 0.25 <= r["scale"] <= 3.0
-                and 0.01 <= r["radius"] <= 1.0 and -1.0 <= r["amount"] <= 1.0 and 0.0 <= r["distance"] <= 0.5):
-            raise ValueError(f"{where}: offset -0.5-0.5, relief 0-3, scale 0.25-3, radius 0.01-1, amount -1 to 1, distance 0-0.5")
+                and 0.01 <= r["radius"] <= 1.0 and -3.0 <= r["amount"] <= 3.0 and 0.0 <= r["distance"] <= 0.5):
+            raise ValueError(f"{where}: offset -0.5-0.5, relief 0-3, scale 0.25-3, radius 0.01-1, amount -3 to 3, distance 0-0.5")
     if lk["tilt"] is not None:
         lk["tilt"] = _merge({"normal": [0.0, 1.0, 0.0], "x0": 0.0, "y0": 0.0, "fit": False}, lk["tilt"], "tilt")
     return lk

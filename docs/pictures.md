@@ -265,8 +265,9 @@ follow it, and the photo overlay moves with it. It's a list, applied in order; e
   what it uncovers from the background around it. It goes behind things that are nearer than it.
 - **`depth`** (Nearer / farther): moves a thing nearer (`offset` > 0) or farther (< 0), as a share of the depth
   range (−0.5 to 0.5), and makes its own relief deeper or flatter (`relief`, 0–3, 1 = as it is).
-- **`bulge`**: swells what's within `radius` (a share of the picture's width) of `point` (`amount` > 0, up to 1)
-  or pinches it (< 0). The middle grows most; the edge of the brush stays put.
+- **`bulge`**: swells what's within `radius` (a share of the picture's width) of `point` (`amount` > 0, up to 3)
+  or pinches it (< 0, down to −3). The middle grows most; the edge of the brush stays put. At 1 the middle is
+  about 10 times bigger, at 3 about 50 times.
 - **`push`**: moves what's round `point` by `distance` (a share of the width, up to 0.5) towards `angle`
   (degrees: 0 = right, 90 = up), fading out at `radius`. Pushing a hand outward stretches the arm.
 

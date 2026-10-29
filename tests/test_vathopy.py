@@ -1233,6 +1233,8 @@ def test_reshape_kinds():
     assert np.nonzero(up > 0.5)[0].mean() > 55                                  # rows bottom-up: up = higher rows
     swollen, _ = reshape(d, look({"kind": "bulge", "point": [0.5, 0.5], "radius": 0.3, "amount": 0.8}))
     assert (swollen > 0.5).sum() > 1.5 * (d > 0.5).sum()
+    more, _ = reshape(d, look({"kind": "bulge", "point": [0.5, 0.5], "radius": 0.3, "amount": 3.0}))
+    assert (more > 0.5).sum() > (swollen > 0.5).sum() and np.isfinite(more).all()      # past 1: swells further, no fold
     ramp = np.tile(np.linspace(0.1, 0.3, 100, dtype=np.float32), (100, 1))   # a sloping background that bends visibly
     ramp[40:60, 40:60] = 0.9
     brush = {"kind": "bulge", "point": [0.5, 0.5], "radius": 0.3, "amount": 0.8}

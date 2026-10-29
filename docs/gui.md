@@ -130,7 +130,8 @@ install -e .`) means no reinstall is needed unless `requirements.txt` changed.
 - **Magnifier** (the Z key, either case, or the lens button at the top left of the picture area turns it on and
   off; off to start with): a 200 px circle follows the mouse
   over the picture (either one in Side by side) and shows it 3× larger, pixels unsmoothed; the scroll wheel
-  sets 1.5× to 16× while it's on. Clicking still picks spots.
+  sets 1.5× to 16× in steps of 0.5 while it's on. The mouse pointer is hidden over the picture while it's on. Clicking still
+  picks spots.
 - **Auto (probe):** sets smoothing and the cycle or contour count to the most the map carries cleanly (see
   [Probing](pictures.md#probing-a-depth-map-for-the-most-detail)).
 - **Save local** (under the picture): writes the full-quality result as a 16-bit PNG to `--favourites` on the
@@ -139,10 +140,13 @@ install -e .`) means no reinstall is needed unless `requirements.txt` changed.
 - **Download PNG** (under the picture, right of Save local): the same 16-bit PNG, downloaded straight to the
   browser, without saving anything on the server. Both are always the result, even while the Highlights view is
   showing.
-- **Side by side** (under the picture): shows the inverse (Invert flipped) to the right of the picture, and adds
-  **Save inverse** and **Download inverse**, which work like Save local and Download PNG for the right-hand
-  picture, named `<depth map>_<look name or "vathopy">_inverse.png`. Each render then makes both pictures, so
-  it's a little slower. Picking a depth works on either picture.
+- **Side by side** (under the picture): shows a second picture to the right; the menu beside it says which.
+  **Inverse:** the inverse (Invert flipped), with **Save inverse** and **Download inverse**, which work like Save
+  local and Download PNG for the right-hand picture, named `<depth map>_<look name or "vathopy">_inverse.png`.
+  **Before / after reshaping:** the picture without the Reshape panels on the left (in the Highlights view, with
+  what they pick tinted) and with them on the right; the buttons become **Save original** / **Download
+  original** (named `…_original`) and **Save reshaped** / **Download reshaped**. Each render then makes both
+  pictures, so it's a little slower. Picking a depth works on either picture.
 - **Orientation** (the row under the picture): ⟲ 90° and ⟳ 90° turn the picture, ⇆ Flip mirrors it left to
   right, ⇅ Flip turns it upside down, Reset puts it back. It applies to both pictures in Side by side, to every
   save and download, and is saved in looks and embedded settings (look key `orientation`). Choosing another
@@ -167,8 +171,9 @@ install -e .`) means no reinstall is needed unless `requirements.txt` changed.
 - **Crop:** trims the depth map itself, e.g. to drop edge pixels the depth model got wrong. Each side (and
   **All**, every side at once) has −10, −5, −1, +1, +5 and +10 px buttons; at least 1 px always stays. The part
   that goes is shaded red on the picture, and four loupes show each corner of the crop, 24 px of the map across,
-  so single pixels are visible. **Save local** writes `<map>-cropped.exr` into the depth-map folder (replacing an
-  earlier crop of that map) and lists it; **Download EXR** sends the same file to the browser and writes nothing
+  so single pixels are visible. These two buttons save the cropped depth map, not the picture: **Save cropped
+  EXR** writes `<map>-cropped.exr` into the depth-map folder (replacing an earlier crop of that map) and lists
+  it; **Download cropped EXR** sends the same file to the browser and writes nothing
   on the server, which is the way to get it from a pod. The crop keeps every channel, the pixel type, the
   compression and all header attributes (such as ComfyUI's prompt and workflow), and the file is read back and
   compared before it's kept. Choosing another depth map sets the crop back to 0, unless the **Lock** box next to
@@ -207,12 +212,15 @@ install -e .`) means no reinstall is needed unless `requirements.txt` changed.
   **Grow / shrink** (Scale, and whether it grows from its middle or its bottom), **Nearer / farther** (how much,
   and Relief: deeper or flatter), **Bulge / pinch** (Amount) and **Push / stretch** (Direction and Distance);
   the last two work on a round brush (Radius), and with **Only this thing** on just the thing under the spot,
-  leaving what's round it alone. Grow / shrink, Nearer / farther and Only this thing pick the thing round the
-  spot: **Size** says how far round it they reach along the surface, so a small one takes one arm and not the
-  other (scroll over its pin to change it), with **Size fine** (−5…+5 steps of 0.002), Edge and Edge fine, Depth
-  range, Grow, Soft edge, Stop at floors and Everything else. While you move those sliders the picture switches
-  to Highlights, with what it picked (or the brush) tinted teal, before the reshaping; the other sliders show
-  the result. Drag a pin to move it. **Reset** sets a panel's sliders and boxes back to the defaults; the spot
+  leaving what's round it alone; Bulge / pinch goes from −3 to 3. Grow / shrink, Nearer / farther and Only this
+  thing pick the thing round the spot from the depth map, like a selection: to start with, everything joined to
+  it at that depth (Size 0), stopping at the floor it stands on. **Size** limits how far round the spot it
+  reaches, measured along the surface, where climbing in depth counts extra, so the edge of the reach follows
+  the depth map: a small one takes one arm and not the other (scroll over its pin to change it), with **Size
+  fine** (−5…+5 steps of 0.002), Edge and Edge fine, Depth range, Grow, Soft edge, Stop at floors and Everything
+  else. Each panel has its own colour, shared by its pin and its tint. While you move those sliders the picture
+  switches to Highlights, with what it picked (or the brush) tinted, before the reshaping; the other sliders
+  show the result. Side by side's **Before / after reshaping** shows both at once. Drag a pin to move it. **Reset** sets a panel's sliders and boxes back to the defaults; the spot
   and the kind stay. See [Reshaping](pictures.md#reshaping). Cleared when another depth map is
   chosen.
 - **Photo:** finds the photo each depth map was made from in `--photos` by name (`<photo>_depth_00001.exr` comes
@@ -222,9 +230,10 @@ install -e .`) means no reinstall is needed unless `requirements.txt` changed.
   (or the O key) shows or hides it without losing its settings.
 - **3D view:** a small low-poly wireframe of the depth map's surface with the keep shapes, shape focuses, focus
   planes and the cut's slabs in it, to see where they sit in space. Drag to turn it, scroll to zoom, right-drag
-  to move it, double-click (or Start view) to go back. With 3D print set to a cylinder or sphere it shows the
-  picture wrapped round that instead. It uses three.js, which comes with vathopy; nothing is fetched from
-  elsewhere.
+  to move it, double-click (or Reset) to go back. With 3D print set to a cylinder or sphere it shows the
+  picture wrapped round that instead. **Detach** (above it) takes it out of the sidebar into a window over the page: drag
+  its bar to move it, its bottom-right corner to resize it; **Dock** puts it back. It uses three.js, which
+  comes with vathopy; nothing is fetched from elsewhere.
 - **3D print:** Flat, or wrapped round a cylinder or a sphere (radius, how far round, and on a sphere how far
   from top to bottom; the base becomes the wall inside), Relief or Lithophane, width, points across, relief height and base (or thinnest/thickest),
   Far raised, Use the crop, **Detail**: Points across as typed, **medium** (50% of the map's pixels),

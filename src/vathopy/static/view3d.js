@@ -121,6 +121,7 @@ export function start(canvas, page) {
   }
   function draw() { size(); renderer.render(scene, camera); }
   controls.addEventListener("change", draw);
+  if (typeof ResizeObserver === "function") new ResizeObserver(() => draw()).observe(canvas);   // a detached, resized view
 
   function home() {
     if (lastShape !== "flat") {                                   // the wrapped picture, all in view
