@@ -10,7 +10,8 @@ The [README](../README.md) covers installing vathopy and a first picture. This m
   - [Creative focus](pictures.md#creative-focus), [Shape focuses](pictures.md#shape-focuses)
   - [The deletion slab](pictures.md#the-deletion-slab), [Selections](pictures.md#selections)
   - [Photo overlay](pictures.md#photo-overlay), [Viewpoint shift](pictures.md#viewpoint-shift)
-  - [Exaggerated depth](pictures.md#exaggerated-depth), [Local contrast](pictures.md#local-contrast)
+  - [Clean edges](pictures.md#clean-edges), [Exaggerated depth](pictures.md#exaggerated-depth),
+    [Local contrast](pictures.md#local-contrast), [Reshaping](pictures.md#reshaping)
 - [Palettes](palettes.md): the 65 built-in palettes, and adding your own (images, JSON, GIMP palettes), with the
   checks they go through.
 - [The GUI](gui.md): starting and stopping it, its folders and options, a password, and every control on the page.

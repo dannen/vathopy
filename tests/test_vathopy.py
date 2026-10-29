@@ -1154,3 +1154,118 @@ def test_local_contrast_boosts_small_shapes_and_keeps_steps():
         vathopy.render(d, {"local_contrast": {"amount": 2}})
     out, _ = vathopy.render(d, {"local_contrast": {"amount": 0.5}})
     assert np.isfinite(out).all()
+
+
+def test_clean_edges_snaps_soft_steps_and_leaves_slopes():
+    from vathopy.engine import clean_edges
+    d = np.full((40, 60), 0.2, np.float32)
+    d[:, 30:] = 0.8
+    d[:, 28], d[:, 29], d[:, 30] = 0.35, 0.5, 0.65                              # the depth model's soft step
+    d[:, :20] = np.linspace(0.0, 0.05, 20, dtype=np.float32)[None, :]          # a gentle slope, then a small step
+    c = clean_edges(d, {"enabled": True, "width": 2.0, "step": 0.02})
+    v = c[:, 24:36]
+    assert np.all(np.isclose(v, 0.2, atol=0.005) | np.isclose(v, 0.8, atol=0.005))     # one clean step
+    assert np.allclose(c[:, 15:19], d[:, 15:19], atol=0.01) and np.allclose(c[:, 20:24], 0.2, atol=0.01)   # the small step stays put
+    assert np.allclose(c[:, :15], d[:, :15])
+    assert clean_edges(d, None) is d and clean_edges(d, {"enabled": False, "width": 2.0, "step": 0.02}) is d
+    plain, _ = vathopy.render(d, {"cycles": 4, "supersample": 2})
+    again, _ = vathopy.render(d, {"cycles": 4, "supersample": 2, "edge_cleanup": None})
+    assert np.array_equal(plain, again)                                          # off unless asked
+    cleaned, _ = vathopy.render(d, {"cycles": 4, "supersample": 2, "edge_cleanup": {}})
+    assert not np.array_equal(plain, cleaned)
+
+
+def test_remove_specks_takes_specks_and_keeps_thin_things():
+    from vathopy import gui
+    from vathopy.engine import clean_edges, remove_specks
+    d = np.full((60, 80), 0.2, np.float32)
+    d[40:, :] = 0.8                                                             # a near thing along the bottom
+    d[10:12, 10:12] = 0.9                                                       # a 4 px speck in the background
+    d[20:22, 20:70] = 0.7                                                       # a thin line: 100 px, not a speck
+    r = remove_specks(d, 9, 0.05)
+    assert np.allclose(r[10:12, 10:12], 0.2) and np.allclose(r[20:22, 20:70], 0.7)
+    assert np.array_equal(remove_specks(d, 0, 0.05), d)
+    c = clean_edges(d, {"enabled": True, "width": 2.0, "step": 0.05, "specks": 9.0})
+    assert np.allclose(c[10:12, 10:12], 0.2)
+    lk = gui.look_from_settings({"palette": "FRINGE", "edge_clean": True, "edge_width": 4, "edge_specks": 12})
+    assert lk["edge_cleanup"]["specks"] == 12 and gui.settings_from_look(lk)["edge_specks"] == 12
+
+
+def _arms():
+    h, w = 200, 300                                       # rows bottom-up: a body with an arm each side, all at one depth
+    d = np.full((h, w), 0.1, np.float32)
+    d[60:200, 120:180] = d[150:165, 40:120] = d[150:165, 180:260] = 0.7
+    return d, [60 / w, 1 - 157 / h]
+
+
+def test_a_selection_size_keeps_it_local_to_the_point():
+    from vathopy.engine import selection_mask
+    from vathopy.look import normalise
+    d, pt = _arms()
+    t = np.clip((d - 0.1) / 0.6, 0, 1)
+    for size, right in ((0.0, True), (0.15, False)):
+        sel = normalise({"selections": [{"point": pt, "size": size}]})["selections"][0]
+        m = selection_mask(t, sel)
+        assert m[157, 50] > 0.5 and (m[157, 240] > 0.5) == right and (m[100, 150] > 0.5) == right
+
+
+def test_reshape_kinds():
+    import cv2
+    from vathopy.engine import reshape
+    from vathopy.look import normalise
+    d = np.full((100, 100), 0.1, np.float32)
+    d[40:60, 40:60] = 0.9
+    look = lambda *items: normalise({"reshape": list(items)})
+    big, _ = reshape(d, look({"kind": "scale", "point": [0.5, 0.5], "scale": 2.0}))
+    assert 1400 < (big > 0.5).sum() < 1700                                      # 4 x 400 px, give or take its edge
+    small, _ = reshape(d, look({"kind": "scale", "point": [0.5, 0.5], "scale": 0.5}))
+    assert (small > 0.5).sum() == 100 and small[42, 42] == pytest.approx(0.1, abs=1e-3)   # uncovered: the background
+    nearer, _ = reshape(d, look({"kind": "depth", "point": [0.5, 0.5], "offset": 0.1}))
+    assert nearer[50, 50] == pytest.approx(0.98, abs=0.01) and nearer[5, 5] == pytest.approx(0.1)
+    for item in ({"kind": "bulge", "amount": 0.0}, {"kind": "push", "distance": 0.0}, {"kind": "scale", "scale": 1.0}):
+        same, _ = reshape(d, look(item))
+        assert np.array_equal(same, d)
+    dot = np.zeros((100, 100), np.float32)
+    dot[48:53, 28:33] = 1.0
+    pushed, _ = reshape(dot, look({"kind": "push", "point": [0.3, 0.5], "radius": 0.3, "distance": 0.1}))
+    assert 35 < np.nonzero(pushed > 0.5)[1].mean() < 42                         # moved right, nearly 10 px
+    up, _ = reshape(dot, look({"kind": "push", "point": [0.3, 0.5], "radius": 0.3, "distance": 0.1, "angle": 90}))
+    assert np.nonzero(up > 0.5)[0].mean() > 55                                  # rows bottom-up: up = higher rows
+    swollen, _ = reshape(d, look({"kind": "bulge", "point": [0.5, 0.5], "radius": 0.3, "amount": 0.8}))
+    assert (swollen > 0.5).sum() > 1.5 * (d > 0.5).sum()
+    ramp = np.tile(np.linspace(0.1, 0.3, 100, dtype=np.float32), (100, 1))   # a sloping background that bends visibly
+    ramp[40:60, 40:60] = 0.9
+    brush = {"kind": "bulge", "point": [0.5, 0.5], "radius": 0.3, "amount": 0.8}
+    bent, _ = reshape(ramp, look(brush))
+    only, _ = reshape(ramp, look({**brush, "only": True}))
+    out = ~cv2.dilate(((only > 0.32) | (bent > 0.32)).astype(np.uint8), np.ones((5, 5), np.uint8)).astype(bool)   # off its soft rim
+    assert np.abs(bent - ramp)[out].max() > 0.008                              # the plain brush bends the background
+    assert np.abs(only - ramp)[out].max() < 0.003                              # only the thing: the background stays (to a px of slope)
+    assert (only > 0.5).sum() > 1.5 * (ramp > 0.5).sum()                       # and the thing still swells
+    with pytest.raises(ValueError, match="reshape"):
+        normalise({"reshape": [{"kind": "melt"}]})
+
+
+def test_reshape_reaches_the_stl_unless_switched_off(tmp_path):
+    from vathopy import gui
+    d, pt = _arms()
+    VIO.write_depth(d, tmp_path / "arms_depth.exr")
+    maps = gui.Maps(tmp_path)
+    s = {"palette": "FRINGE", "reshape": [{"shape": "scale", "x": pt[0], "y": pt[1], "scale": 1.5, "size": 0.15}],
+         "edge_clean": True}
+    lk = gui.look_from_settings(s)
+    assert lk["reshape"][0]["kind"] == "scale" and lk["edge_cleanup"]["enabled"]
+    back = gui.settings_from_look(lk)
+    assert back["reshape"][0]["shape"] == "scale" and back["reshape"][0]["size"] == 0.15 and back["edge_clean"]
+    assert gui.look_from_settings({**s, "reshape": [{**s["reshape"][0], "size_fine": -2}]})["reshape"][0]["size"] == 0.146
+
+    def stl(**req):
+        handler = gui.make_handler(maps, tmp_path / "fav", 1280)
+        h = handler.__new__(handler)
+        sent = {}
+        h._send = lambda code, body, *a, **k: sent.update(code=code, body=body)
+        h._stl({"map": "arms_depth.exr", "settings": s, "px": 60, **req})
+        return sent["body"]
+    plain_req = {"settings": {"palette": "FRINGE"}}
+    assert stl() != stl(**plain_req)                                             # follows the reshaping
+    assert stl(follow=False) == stl(**plain_req)                                 # Follow reshaping off: the map as it is

@@ -277,6 +277,8 @@ def cmd_relief(a):
     lk = LOOK.load(a.look) if a.look else LOOK.normalise({})
     if a.preset:
         lk["ramp"] = {"preset": a.preset}
+    if a.no_reshape:                                                    # the map as it is, not as the look reshapes it
+        lk = {**lk, "reshape": [], "edge_cleanup": None}
     for src in a.inputs:
         depth, _ = VIO.load_depth(src)                                  # rows bottom-up
         w_src = depth.shape[1] if not lk["orientation"]["turns"] % 2 else depth.shape[0]
@@ -463,6 +465,8 @@ def main(argv=None):
     rl.add_argument("--deleted", choices=("out", "flat", "keep"), default="out",
                     help="what the look's cut deletes becomes: left out, holes and all (default), flat on the base, "
                          "or printed anyway; wrapped prints can't have holes, so there it lies flat")
+    rl.add_argument("--no-reshape", action="store_true",
+                    help="ignore the look's reshape and edge cleanup: print the depth map's own shapes")
     rl.add_argument("--smooth-depth", type=float, metavar="R", help="smooth the depth first (px; default the look's)")
     rl.add_argument("--exaggerate", type=float, metavar="A",
                     help="make the relief more pronounced: details x (1 + A) against what's round them (0-10; default the look's)")

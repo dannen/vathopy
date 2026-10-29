@@ -30,17 +30,17 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
     font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  .app { display: grid; grid-template-columns: 320px 1fr; height: 100vh; }
+  .app { display: grid; grid-template-columns: 360px 1fr; height: 100vh; }
   aside { background: var(--panel); border-right: 1px solid var(--line); overflow-y: auto; padding: 14px 16px 24px; }
   main { position: relative; overflow: auto; display: flex; align-items: center; justify-content: center; }
   h1 { font-size: 15px; margin: 0 0 12px; letter-spacing: .02em; display: flex; align-items: center; justify-content: space-between; }
   h1 button.small { margin-top: 0; font-weight: normal; letter-spacing: 0; }
   h1 .tools { display: flex; gap: 6px; }
   /* The sidebar on the right of the picture (Move ▸): the fixed overlays swap sides with it. */
-  body.side-right .app { grid-template-columns: 1fr 320px; }
+  body.side-right .app { grid-template-columns: 1fr 360px; }
   body.side-right aside { order: 2; border-right: 0; border-left: 1px solid var(--line); }
   body.side-right #status, body.side-right #lensbtn { left: 12px; }
-  body.side-right #tabs { right: calc(320px + 12px); }
+  body.side-right #tabs { right: calc(360px + 12px); }
   h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); margin: 18px 0 8px; font-weight: 600; }
   /* A short rule between the sidebar's sections: 70% of the panel's width, centred. */
   aside h2::before { content: ""; display: block; width: 70%; height: 2px; margin: 0 auto 14px; background: var(--rule); border-radius: 1px; }
@@ -84,7 +84,7 @@
     padding: 6px 10px; font: inherit; cursor: pointer; }
   .inline { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
   .note { color: var(--dim); font-size: 12px; margin-top: 6px; white-space: pre-line; overflow-wrap: anywhere; }
-  #status { position: fixed; left: calc(320px + 12px); bottom: 10px; z-index: 3; background: var(--overlay); padding: 4px 9px;
+  #status { position: fixed; left: calc(360px + 12px); bottom: 10px; z-index: 3; background: var(--overlay); padding: 4px 9px;
     border-radius: 6px; color: var(--dim); font-variant-numeric: tabular-nums; pointer-events: none; }
   #map { padding: 3px; }
   .maprow { display: flex; align-items: flex-start; gap: 8px; }
@@ -100,21 +100,21 @@
   .below .orient .glyph { font-size: 15px; line-height: 1; margin-right: 4px; }
   #downloaded { margin-top: 0; text-align: center; overflow-wrap: anywhere; }
   .below[hidden] { display: none; }
-  #view, #view2 { max-width: 100%; max-height: calc(100vh - 110px); display: block; image-rendering: auto; cursor: zoom-in; }
+  #view, #view2 { max-width: 100%; max-height: calc(100vh - 110px); display: block; image-rendering: auto; }
   #pair { display: flex; gap: 8px; align-items: flex-start; justify-content: center; max-width: 100%; }
   #pair.on #viewbox, #view2 { flex: 0 1 auto; min-width: 0; max-width: calc(50% - 4px); }
   #view2[hidden], #save_local2[hidden], #download2[hidden] { display: none; }
   main.actual { align-items: flex-start; justify-content: flex-start; }
   main.actual .work { align-items: flex-start; max-width: none; }
-  main.actual #view, main.actual #view2, main.actual #pair.on #viewbox { max-width: none; max-height: none; cursor: zoom-out; }
+  main.actual #view, main.actual #view2, main.actual #pair.on #viewbox { max-width: none; max-height: none; }
   main #view.picking, main #view2.picking { cursor: crosshair; }
-  #pick, #pick_keep, #pick_sel, #pick_remove, #download, #save_local, #pairbtn, #download2, #save_local2 { display: inline-flex; align-items: center; gap: 7px; }
+  #pick, #pick_keep, #pick_sel, #pick_remove, #pick_reshape, #download, #save_local, #pairbtn, #download2, #save_local2 { display: inline-flex; align-items: center; gap: 7px; }
   #download .icon, #save_local .icon, #download2 .icon, #save_local2 .icon { width: 18px; height: 18px; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; fill: none; flex: none; }
-  #pick .plus, #pick_keep .plus, #pick_sel .plus, #pick_remove .plus { width: 20px; height: 20px; stroke: currentColor; stroke-width: 3.2; stroke-linecap: round; flex: none; }
+  #pick .plus, #pick_keep .plus, #pick_sel .plus, #pick_remove .plus, #pick_reshape .plus { width: 20px; height: 20px; stroke: currentColor; stroke-width: 3.2; stroke-linecap: round; flex: none; }
   button.ghost[aria-pressed=true] { border-color: var(--accent); color: var(--focus); }
   .band { border: 1px solid var(--line); border-radius: 8px; padding: 2px 8px 8px; margin-top: 8px; }
   .band .head { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; color: var(--dim); }
-  .band .head label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+  .band .head label { display: flex; align-items: center; gap: 4px; cursor: pointer; white-space: nowrap; }
   .band.off .row { opacity: .45; }
   .band.folded .row, .band.folded .shaperow { display: none; }
   .shaperow { display: flex; gap: 6px; margin: 6px 0 2px; }
@@ -122,6 +122,7 @@
   .shaperow select.fill { flex: 0 0 auto; width: auto; }
   .band .checks { margin-top: 6px; gap: 12px; flex-wrap: wrap; }
   .band.folded .checks, .band.folded .selpal { display: none; }
+  .band .checks button.reset { font-size: inherit; margin-top: 0; }
   .selpal { margin: 6px 0 2px; padding: 3px 6px; }
   .shaperow[hidden], .shaperow select[hidden] { display: none; }
   h2 button.sec { display: flex; align-items: center; gap: 6px; width: 100%; background: none; border: 0; padding: 2px 0;
@@ -134,14 +135,15 @@
   .band.locked .row input[type=range] { cursor: not-allowed; }
   .band .head button.remove:disabled { opacity: .3; cursor: not-allowed; }
   .band.folded { padding-bottom: 2px; }
-  .band .head .fold { font-variant-numeric: tabular-nums; }
+  .band .head .fold { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .band .head > span:last-child { white-space: nowrap; flex: none; }
   .band { border-width: 2px; }
   .band .head .dot { display: inline-block; width: 26px; height: 14px; border-radius: 4px; margin: 0 4px 0 2px;
     box-shadow: inset 0 0 0 1px rgba(0,0,0,.35); }
   .band.off .head .dot { opacity: .35; }
   #tabs { position: fixed; top: 10px; right: 12px; display: flex; background: var(--overlay); box-shadow: 0 1px 4px var(--shadow); border-radius: 8px; padding: 3px; z-index: 2; }
   #tabs[hidden] { display: none; }
-  #lensbtn { position: fixed; top: 10px; left: calc(320px + 12px); z-index: 3; display: flex; align-items: center; justify-content: center;
+  #lensbtn { position: fixed; top: 10px; left: calc(360px + 12px); z-index: 3; display: flex; align-items: center; justify-content: center;
     width: 36px; height: 36px; padding: 0; background: var(--overlay); color: var(--overlay-text); box-shadow: 0 1px 4px var(--shadow); border: 1px solid transparent; border-radius: 8px; cursor: pointer; }
   #lensbtn svg { width: 20px; height: 20px; stroke: currentColor; stroke-width: 2.2; fill: none; stroke-linecap: round; }
   #lensbtn[aria-pressed=true] { background: var(--accent); color: #1b1006; }
@@ -311,6 +313,13 @@
     <div class="note" id="sel_note"></div>
     <div id="sels"></div>
 
+    <h2>Reshape</h2>
+    <div class="note" style="margin-top:0">Change the depth map itself: grow or shrink a thing, bring it nearer or farther, bulge or push a spot. The 3D view and the 3D print follow it.</div>
+    <div class="inline"><button class="ghost" id="pick_reshape" aria-pressed="false" title="Then click the picture: what's there, round the spot you clicked (Size), can be made bigger or smaller, nearer or farther; or bulge or push that spot. Shift-click to keep picking.">
+      <svg class="plus" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2v16M2 10h16"/></svg>Pick a spot</button></div>
+    <div class="note" id="reshape_note"></div>
+    <div id="reshapes"></div>
+
     <h2>Photo</h2>
     <div class="note" id="photo_note" style="margin-top:0"></div>
     <div class="row" title="How much of the original photo shows over the picture: 0 = none"><span class="lab"><label for="overlay_opacity">Photo over the picture</label>
@@ -336,6 +345,12 @@
       <input type="range" id="smooth" min="0" max="12" step="0.5" value="0"></div>
     <div class="row"><label for="supersample">Anti-aliasing</label><output id="supersample_v"></output>
       <input type="range" id="supersample" min="1" max="4" step="1" value="2"></div>
+    <div class="row" title="Turns the soft ramp along each depth edge into one clean step between the two sides, so fringes and colours end in one clean, anti-aliased line instead of a ragged run of stray colours; the slider sets how far either side it reaches">
+      <span class="lab"><label for="edge_width">Clean edges</label>
+      <label class="lock" title="Clean up the edges between depths (off: as the depth model left them)"><input type="checkbox" id="edge_clean" checked> On</label></span><output id="edge_width_v"></output>
+      <input type="range" id="edge_width" min="0.5" max="8" step="0.5" value="4"></div>
+    <div class="row" title="With Clean edges on: specks of depth up to this many pixels that stand out from what's round them (stray hairs the depth model left floating in the background) take the depth round them; 0 keeps them"><label for="edge_specks">Remove specks (px)</label><output id="edge_specks_v"></output>
+      <input type="range" id="edge_specks" min="0" max="50" step="1" value="9"></div>
     <div class="inline"><button class="ghost" id="auto" title="Probe this depth map and set smoothing and the cycle/contour count to the most it carries cleanly">Auto (probe)</button></div>
     <div class="note" id="probe"></div>
 
@@ -392,7 +407,8 @@
       <label for="stl_max" class="litho-only">Thickest (mm)</label><input type="number" id="stl_max" class="litho-only" min="0.3" max="50" step="0.1" value="3">
     </div>
     <div class="checks"><label class="relief-only"><input type="checkbox" id="stl_invert"> Far raised (a mould)</label>
-      <label title="Print only what the crop above keeps"><input type="checkbox" id="stl_crop" checked> Use the crop</label></div>
+      <label title="Print only what the crop above keeps"><input type="checkbox" id="stl_crop" checked> Use the crop</label>
+      <label title="Print the depth as Reshape and Clean edges change it (off: the depth map's own shapes)"><input type="checkbox" id="stl_follow" checked> Follow reshaping</label></div>
     <div class="inline"><button class="ghost" id="stl_save" title="Write the STL (millimetres, turned like the picture) into the favourites folder on the machine running vathopy">
       <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 3.5h9.5L16.5 6.5v10h-12.5zM7 3.5v4h6v-4M7 16.5v-5h6v5"/></svg>Save local</button>
       <button class="ghost" id="stl_download" title="Download a binary STL (millimetres), turned like the picture">
@@ -432,7 +448,7 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-const sliders = ["shift", "view_x", "view_y", "view_strength", "overlay_opacity", "exaggerate", "exaggerate_size", "local_contrast", "lc_range", "lc_compress", "depth_scale", "cut_depth", "cut_near", "cut_softness", "cycles", "cycles_fine", "contours", "contour_strength", "contour_width", "smooth", "supersample"];
+const sliders = ["shift", "view_x", "view_y", "view_strength", "overlay_opacity", "exaggerate", "exaggerate_size", "local_contrast", "lc_range", "lc_compress", "depth_scale", "cut_depth", "cut_near", "cut_softness", "cycles", "cycles_fine", "contours", "contour_strength", "contour_width", "smooth", "supersample", "edge_width", "edge_specks"];
 let palette = "FRINGE";
 const fmt = {
   view_x: (v) => (+v === 0 ? "straight on" : `${+v > 0 ? "▶ " : "◀ "}${Math.abs(+v).toFixed(2)}`),
@@ -456,6 +472,8 @@ const fmt = {
   contour_width: (v) => (+v).toString(),
   smooth: (v) => (+v === 0 ? "off" : (+v).toString()),
   supersample: (v) => (+v === 1 ? "off" : `${v}×`),
+  edge_width: (v) => ($("edge_clean").checked ? `${+v} px` : "off"),
+  edge_specks: (v) => (!$("edge_clean").checked || +v === 0 ? "off" : `up to ${+v} px`),
 };
 
 // Focus bands: [{depth, width, softness}], fractions of the depth range (0 = far, 1 = near).
@@ -470,10 +488,11 @@ const MAX_FOCUS = FOCUS_COLOURS.length;
 // The picture shown: "result", or "highlight" (the look without its focus, each focus tinted).
 let view = "result";
 function setView(v, render = true) {
-  if (!bands.length) v = "result";
+  const hl = bands.length || reshapes.length;      // something to highlight: focuses or reshaping
+  if (!hl) v = "result";
   const changed = v !== view;
   view = v;
-  $("tabs").hidden = !bands.length;
+  $("tabs").hidden = !hl;
   for (const b of $("tabs").querySelectorAll("button")) b.setAttribute("aria-selected", b.dataset.view === view);
   if (changed && render) full();
 }
@@ -605,7 +624,7 @@ function buildPanels(o) {
     lock.checked = b.locked;
     lock.setAttribute("aria-label", `Lock ${name}`);
     const applyLock = () => {                       // sliders, shape and remove; on/off and folding stay usable
-      for (const el of div.querySelectorAll("input[type=range], input[type=color], input.colon, button.remove, button.step, select")) el.disabled = b.locked;
+      for (const el of div.querySelectorAll("input[type=range], input[type=color], input.colon, button.remove, button.reset, button.step, select")) el.disabled = b.locked;
       div.classList.toggle("locked", b.locked);
     };
     lock.onchange = () => { b.locked = lock.checked; applyLock(); };
@@ -765,11 +784,109 @@ function buildRemoves() {
   drawPins();
 }
 
+// Reshape: changes to the depth map itself, before everything else. Grow / shrink and Nearer / farther
+// pick a thing round the clicked spot like a target (Size keeps it local: one arm, not both); Bulge and
+// Push work on a round brush there.
+let reshapes = [];
+const RESHAPE_COLOUR = "#2ec4b6";
+const RESHAPE_SHORT = { scale: "Grow", depth: "Depth", bulge: "Bulge", push: "Push" };   // a folded panel's label
+Object.assign(SHAPE_NAMES, { scale: "Grow / shrink", depth: "Nearer / farther", bulge: "Bulge / pinch", push: "Push / stretch" });
+const picks = (b) => b.shape === "scale" || b.shape === "depth" || !!b.only;   // works on the thing round the spot
+const RESHAPE_SLIDERS = [["scale", "Scale", 0.25, 3, 0.01, (b) => b.shape === "scale"],
+                         ["offset", "Nearer / farther", -0.5, 0.5, 0.01, (b) => b.shape === "depth"],
+                         ["relief", "Relief", 0, 3, 0.05, (b) => b.shape === "depth"],
+                         ["amount", "Amount", -1, 1, 0.02, (b) => b.shape === "bulge"],
+                         ["angle", "Direction (°)", -180, 180, 1, (b) => b.shape === "push"],
+                         ["distance", "Distance", 0, 0.5, 0.002, (b) => b.shape === "push"],
+                         ["radius", "Radius", 0.01, 1, 0.005, (b) => b.shape === "bulge" || b.shape === "push"],
+                         ["size", "Size", 0, 0.5, 0.01, picks], ["size_fine", "Size fine", -5, 5, 1, picks],
+                         ["step", "Edge", 0.0005, 0.03, 0.0005, picks], ["step_fine", "Edge fine", -5, 5, 1, picks],
+                         ["range", "Depth range", 0, 0.5, 0.005, picks],
+                         ["grow", "Grow (px)", 0, 10, 0.5, picks], ["softness", "Soft edge (px)", 0, 20, 0.5, picks]];
+const RESHAPE_DEFAULTS = { scale: 1.15, offset: 0, relief: 1, amount: 0.3, angle: 0, distance: 0.03, radius: 0.1,
+                           size: 0.1, size_fine: 0, step: 0.003, step_fine: 0, range: 0, grow: 1, softness: 3 };
+const RESHAPE_PICKING = new Set(["size", "size_fine", "step", "step_fine", "range", "grow", "softness", "radius"]);   // what it works on
+const RESHAPE_TIPS = {
+  scale: "How much bigger (above 1) or smaller (below 1) it gets; what it uncovers is filled from the background",
+  offset: "Bring it nearer (+) or push it farther (−), as a share of the depth range",
+  relief: "Its own depth: above 1 deeper, below 1 flatter (0 = flat)",
+  amount: "Above 0 swells what's under the brush (bigger in the middle), below 0 pinches it",
+  angle: "Which way to push: 0 = right, 90 = up, −90 = down, 180 = left",
+  distance: "How far the middle of the brush moves, as a share of the picture's width; pushing a hand outward stretches the arm",
+  radius: "The brush's radius, as a share of the picture's width",
+  size: "How far round the spot it reaches, along the surface, as a share of the picture's width (scroll over its pin to change it): small takes one arm, not both; 0 = everything joined to it",
+  size_fine: "Fine-tunes Size: adds or subtracts up to 5 steps of 0.002",
+  step: SEL_TIPS.step, step_fine: SEL_TIPS.step_fine, range: SEL_TIPS.range, grow: SEL_TIPS.grow,
+  softness: "Feather its edge over this many pixels (where Size cuts across a surface it fades out anyway)",
+};
+const sizeTotal = (b) => (+b.size === 0 ? 0 : Math.max(0.001, Math.round((+b.size + 0.002 * (+b.size_fine || 0)) * 1000) / 1000));
+const signed = (v, d) => `${+v > 0 ? "+" : +v < 0 ? "−" : "±"}${Math.abs(+v).toFixed(d)}`;
+const reshapeText = (key, v, b) => (key === "size" ? (+v === 0 ? "unlimited" : (+v).toFixed(2))
+  : key === "size_fine" ? (+b.size === 0 ? "off" : `${signed(v, 0)} → ${sizeTotal(b).toFixed(3)}`)
+  : key === "step" || key === "step_fine" ? selText(key, v, b)
+  : key === "range" ? (+v === 0 ? "off" : (+v).toFixed(3))
+  : key === "offset" ? (+v === 0 ? "as it is" : `${signed(v, 2)} ${+v > 0 ? "nearer" : "farther"}`)
+  : key === "relief" || key === "scale" ? `${(+v).toFixed(2)}×`
+  : key === "amount" ? (+v === 0 ? "none" : `${signed(v, 2)} ${+v > 0 ? "bulge" : "pinch"}`)
+  : key === "angle" ? `${+v}°`
+  : key === "radius" || key === "distance" ? (+v).toFixed(3) : `${+v} px`);
+function buildReshapes() {
+  buildPanels({ box: "reshapes", list: reshapes, title: "Reshape", colour: () => RESHAPE_COLOUR, sliders: RESHAPE_SLIDERS,
+                defaults: RESHAPE_DEFAULTS, shapes: ["scale", "depth", "bulge", "push"], fill: false, rebuild: buildReshapes,
+                text: reshapeText, tips: RESHAPE_TIPS, foldText: (b) => b.open ? "" : RESHAPE_SHORT[b.shape],
+                onInput: (key) => setView(RESHAPE_PICKING.has(key) ? "highlight" : "result", false),
+                extra: (div, b, name) => {
+                  b.anchor ??= "centre";
+                  const checks = document.createElement("div");
+                  checks.className = "checks";
+                  if (b.shape === "scale") {
+                    const anchor = document.createElement("select");
+                    anchor.setAttribute("aria-label", `${name} grows from`);
+                    anchor.title = "What stays put: its middle, or its bottom (feet stay on the ground)";
+                    anchor.add(new Option("From its middle", "centre")); anchor.add(new Option("From its bottom", "bottom"));
+                    anchor.value = b.anchor;
+                    anchor.onchange = () => { b.anchor = anchor.value; full(); };
+                    checks.appendChild(anchor);
+                  }
+                  if (b.shape === "bulge" || b.shape === "push") {
+                    const l = document.createElement("label");
+                    l.title = "Bulge or push only the thing under the spot (picked like Grow / shrink), not what's round it";
+                    l.innerHTML = `<input type="checkbox"> Only this thing`;
+                    const c = l.querySelector("input");
+                    c.checked = !!b.only;
+                    c.onchange = () => { b.only = c.checked; buildReshapes(); full(); };
+                    checks.appendChild(l);
+                  }
+                  if (picks(b)) for (const [key, label, tip] of [["floors", "Stop at floors", "Don't spread onto ground that comes nearer going down the picture (under someone's feet)"],
+                                                                 ["invert", "Everything else", "Work on everything except this"]]) {
+                    const l = document.createElement("label");
+                    l.title = tip;
+                    l.innerHTML = `<input type="checkbox"> ${label}`;
+                    const c = l.querySelector("input");
+                    c.checked = !!b[key];
+                    c.onchange = () => { b[key] = c.checked; full(); };
+                    checks.appendChild(l);
+                  }
+                  const reset = document.createElement("button");   // its sliders back to the defaults; the spot and kind stay
+                  reset.type = "button"; reset.className = "ghost small reset"; reset.textContent = "Reset";
+                  reset.style.marginLeft = "auto";
+                  reset.title = "Set this reshape's sliders and boxes back to the defaults (the spot and the kind stay)";
+                  reset.onclick = () => {
+                    Object.assign(b, RESHAPE_DEFAULTS, { anchor: "centre", floors: false, invert: false, only: false });
+                    buildReshapes(); full();
+                  };
+                  checks.appendChild(reset);
+                  div.querySelector(".shaperow").after(checks);
+                } });
+  drawPins();
+  setView(view, false);                             // the Highlights tab shows while there's something to highlight
+}
+
 // Pins: a dot on the picture at each focus's, keep shape's, target's and deleted part's point (F1…, K1…, T1…, D). Dragging one moves its
 // point; on release it takes the depth under the new place (Shift held: keeps its depth) and renders.
 // A click without a drag opens its panel. Locked ones don't move. Points are kept in the map's own
 // coordinates; shownPoint/mapPoint translate for a turned or mirrored picture.
-let pinsOn = true, pinDrag = false;                 // pinDrag: a pin is being dragged (renders mustn't replace it)
+let pinsOn = true, pinDrag = false, wheelTimer = 0;                 // pinDrag: a pin is being dragged (renders mustn't replace it)
 function shownPoint(x, y) {                       // map -> picture: the inverse of mapPoint
   for (let i = 0; i < orientation.turns; i++) [x, y] = [y, 1 - x];
   if (orientation.mirror) x = 1 - x;
@@ -784,7 +901,8 @@ function drawPins() {
   const lists = [[bands, "F", (i) => FOCUS_COLOURS[i % FOCUS_COLOURS.length], "bands", buildBands, "Focus", true],
                  [keeps, "K", () => KEEP_COLOUR, "keeps", buildKeeps, "Keep", true],
                  [sels, "T", () => SEL_COLOUR, "sels", buildSels, "Target", false],
-                 [removes, "D", () => REMOVE_COLOUR, "removes", buildRemoves, "Deleted part", false]];
+                 [removes, "D", () => REMOVE_COLOUR, "removes", buildRemoves, "Deleted part", false],
+                 [reshapes, "R", () => RESHAPE_COLOUR, "reshapes", buildReshapes, "Reshape", false]];
   for (const [list, tag, colour, panelBox, rebuild, title, hasDepth] of lists) list.forEach((b, i) => {
     if (b.x == null || b.y == null) return;      // a focus from a Blender look: no point on the picture
     const pin = document.createElement("div");
@@ -792,7 +910,15 @@ function drawPins() {
     pin.textContent = tag === "D" && list.length === 1 ? "D" : tag + (i + 1);
     pin.style.background = colour(i);
     pin.title = `${title} ${i + 1}` + (b.locked ? " (locked)" : hasDepth ? ": drag to move it; Shift as you let go keeps its depth; click to open its panel"
-      : `: drag to ${tag === "D" ? "delete what's at" : "grow it from"} another point; click to open its panel`);
+      : `: drag to ${tag === "D" ? "delete what's at" : tag === "R" ? "move it to" : "grow it from"} another point; click to open its panel`
+        + (tag === "R" && picks(b) ? "; scroll over it to change its Size" : ""));
+    if (tag === "R" && picks(b)) pin.addEventListener("wheel", (ev) => {   // scroll: Size up or down a step
+      ev.preventDefault(); ev.stopPropagation();
+      if (b.locked) return;
+      b.size = Math.min(0.5, Math.max(0, Math.round((+b.size + (ev.deltaY < 0 ? 0.01 : -0.01)) * 100) / 100));
+      rebuild(); setView("highlight", false);
+      clearTimeout(wheelTimer); wheelTimer = setTimeout(full, 250);
+    }, { passive: false });
     const place = (x, y) => { const [sx, sy] = shownPoint(x, y); pin.style.left = `${100 * sx}%`; pin.style.top = `${100 * sy}%`; };
     place(b.x, b.y);
     pin.addEventListener("pointerdown", (ev) => {
@@ -853,7 +979,8 @@ function setCycles(c) {
 }
 function settings() {
   const s = { palette, invert: $("invert").checked, equalize: $("equalize").checked,
-              focus_style: $("focus_style").value, focus: bands, keep: keeps, selections: sels, removes, cut_fill: $("cut_fill").value,
+              focus_style: $("focus_style").value, focus: bands, keep: keeps, selections: sels, removes, reshape: reshapes,
+              edge_clean: $("edge_clean").checked, stl_follow: $("stl_follow").checked, cut_fill: $("cut_fill").value,
               overlay_mode: $("overlay_mode").value, overlay_where: $("overlay_where").value, overlay_grey: $("overlay_grey").checked,
               overlay_invert: $("overlay_invert").checked, overlay_on: $("overlay_on").checked, exaggerate_on: $("exaggerate_on").checked };
   for (const k of sliders) s[k] = parseFloat($(k).value);
@@ -1041,7 +1168,7 @@ async function init() {
 // the settings in this browser; loading the page puts them back. Focuses and keep shapes come back
 // only on the same map (their depths belong to it).
 const PAGE_KEY = "vathopy.page";
-const STL_FIELDS = ["stl_mode", "stl_wrap", "stl_radius", "stl_arc", "stl_lat", "stl_width", "stl_px", "stl_relief", "stl_base", "stl_min", "stl_max", "stl_invert", "stl_crop", "stl_detail", "stl_deleted"];
+const STL_FIELDS = ["stl_mode", "stl_wrap", "stl_radius", "stl_arc", "stl_lat", "stl_width", "stl_px", "stl_relief", "stl_base", "stl_min", "stl_max", "stl_invert", "stl_crop", "stl_detail", "stl_deleted", "stl_follow"];
 let restoring = false;
 function savePage() {
   if (restoring || !$("map").value) return;
@@ -1070,7 +1197,7 @@ function restorePage(maps) {
     }
     showStlMode();
     restoring = false;
-    applySettings(same ? p.settings : { ...p.settings, focus: [], keep: [], selections: [], removes: [] }, p.name || "");   // renders, and saves
+    applySettings(same ? p.settings : { ...p.settings, focus: [], keep: [], selections: [], removes: [], reshape: [] }, p.name || "");   // renders, and saves
     showCrop();
     return true;
   } catch (e) {                                       // e.g. a palette that's gone: start as usual
@@ -1114,7 +1241,7 @@ $("map").addEventListener("change", () => {
   setOrientation({}, false);                        // a new map starts the right way up
   mapSize = null; showCrop();                       // the new map's size comes with its render
   showTitle(); showPhoto();
-  bands = []; buildBands(); keeps = []; buildKeeps(); sels = []; buildSels(); removes = []; buildRemoves(); setPicking(false); setView("result", false);   // their depths belong to the old map
+  bands = []; buildBands(); keeps = []; buildKeeps(); sels = []; buildSels(); removes = []; buildRemoves(); reshapes = []; buildReshapes(); setPicking(false); setView("result", false);   // their depths belong to the old map
   full();
 });
 $("refresh").addEventListener("click", async () => {
@@ -1136,7 +1263,7 @@ $("pairbtn").onclick = () => {
   full();
 };
 const onPicture = async (ev) => {
-  if (!picking) { $("stage").classList.toggle("actual"); fitView(); return; }
+  if (!picking) return;                            // a click only does something while picking a spot
   const target = picking;
   const r = ev.currentTarget.getBoundingClientRect();     // either picture: same map, same place
   const [x, y] = mapPoint((ev.clientX - r.left) / r.width, (ev.clientY - r.top) / r.height);
@@ -1147,6 +1274,15 @@ const onPicture = async (ev) => {
     removes.push({ x: +x.toFixed(4), y: +y.toFixed(4), ...REMOVE_DEFAULTS, floors: false, invert: false, enabled: true, open: true });
     $("remove_note").textContent = "";
     buildRemoves(); full();
+    return;
+  }
+  if (target === "reshape") {                      // no depth needed: it works from the point at render time
+    if (reshapes.length >= MAX_FOCUS) { $("reshape_note").textContent = `${MAX_FOCUS} is the most: remove one first`; return; }
+    if (reshapes.length >= 3) for (const o of reshapes) o.open = false;
+    reshapes.push({ x: +x.toFixed(4), y: +y.toFixed(4), shape: "scale", ...RESHAPE_DEFAULTS, anchor: "centre",
+                    floors: false, invert: false, enabled: true, open: true });
+    $("reshape_note").textContent = "";
+    buildReshapes(); setView("highlight", false); full();
     return;
   }
   if (target === "select") {                       // no depth needed: it grows from the point at render time
@@ -1188,12 +1324,15 @@ function setPicking(on, target = "focus") {
   $("pick_keep").setAttribute("aria-pressed", picking === "keep");
   $("pick_sel").setAttribute("aria-pressed", picking === "select");
   $("pick_remove").setAttribute("aria-pressed", picking === "remove");
+  $("pick_reshape").setAttribute("aria-pressed", picking === "reshape");
   for (const id of ["view", "view2"]) $(id).classList.toggle("picking", !!picking);
 }
 $("pick").onclick = () => setPicking(picking !== "focus", "focus");
 $("pick_keep").onclick = () => setPicking(picking !== "keep", "keep");
 $("pick_sel").onclick = () => setPicking(picking !== "select", "select");
 $("pick_remove").onclick = () => setPicking(picking !== "remove", "remove");
+$("pick_reshape").onclick = () => setPicking(picking !== "reshape", "reshape");
+$("edge_clean").addEventListener("change", () => { showValues(); full(); });
 $("cut_fill").addEventListener("change", full);
 for (const id of ["overlay_mode", "overlay_where", "overlay_grey", "overlay_invert", "overlay_on"]) $(id).addEventListener("change", full);
 $("exaggerate_on").addEventListener("change", () => { showValues(); full(); });
@@ -1212,7 +1351,7 @@ $("focus_style").addEventListener("change", full);
 for (const b of $("tabs").querySelectorAll("button")) b.onclick = () => setView(b.dataset.view);
 document.addEventListener("keydown", (ev) => {
   const el = document.activeElement, typing = el && (el.type === "text" || el.tagName === "SELECT");
-  if ((ev.key === "t" || ev.key === "T") && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !typing && bands.length)
+  if ((ev.key === "t" || ev.key === "T") && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !typing && (bands.length || reshapes.length))
     setView(view === "result" ? "highlight" : "result");
   if ((ev.key === "z" || ev.key === "Z") && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !typing) setLens(!lensOn);
   if ((ev.key === "p" || ev.key === "P") && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !typing) setPins(!pinsOn);
@@ -1283,11 +1422,11 @@ function drawLens(at) {
   lens.querySelector("span").textContent = `${lensZoom}×`;
   lens.hidden = false;
 }
-$("lensbtn").onclick = () => setLens(!lensOn);
 document.addEventListener("mousemove", (ev) => {
   lensAt = pictureAt(ev.clientX, ev.clientY) ? { x: ev.clientX, y: ev.clientY } : null;
   if (lensOn) drawLens({ x: ev.clientX, y: ev.clientY });
 });
+$("lensbtn").onclick = () => setLens(!lensOn);
 document.addEventListener("wheel", (ev) => {           // scroll over the picture: zoom the lens, not the page
   if (!lensOn || !pictureAt(ev.clientX, ev.clientY)) return;
   ev.preventDefault();
@@ -1323,6 +1462,8 @@ function applySettings(s, name) {
   keeps = (s.keep || []).map((k) => ({ ...k, open: s.keep.length <= 3 })); buildKeeps();
   sels = (s.selections || []).map((k) => ({ ...k, open: s.selections.length <= 3 })); buildSels();
   removes = (s.removes || []).map((k) => ({ ...k, open: s.removes.length <= 3 })); buildRemoves();
+  reshapes = (s.reshape || []).map((k) => ({ ...k, open: s.reshape.length <= 3 })); buildReshapes();
+  $("edge_clean").checked = s.edge_clean !== false;
   $("cut_fill").value = s.cut_fill || "black";
   $("overlay_mode").value = s.overlay_mode || "normal"; $("overlay_where").value = s.overlay_where || "all";
   $("overlay_grey").checked = !!s.overlay_grey; $("overlay_invert").checked = !!s.overlay_invert;
@@ -1611,7 +1752,7 @@ for (const id of ["stl_radius", "stl_arc", "stl_lat", "stl_relief", "stl_invert"
 showStlMode();
 function stlRequest(save) {
   return { map: $("map").value, settings: settings(), name: $("name").value, mode: $("stl_mode").value,
-           width_mm: +$("stl_width").value, px: $("stl_detail").value === "custom" ? +$("stl_px").value : $("stl_detail").value, deleted: $("stl_deleted").value, relief_mm: +$("stl_relief").value,
+           width_mm: +$("stl_width").value, px: $("stl_detail").value === "custom" ? +$("stl_px").value : $("stl_detail").value, deleted: $("stl_deleted").value, follow: $("stl_follow").checked, relief_mm: +$("stl_relief").value,
            base_mm: +$("stl_base").value, min_mm: +$("stl_min").value, max_mm: +$("stl_max").value,
            invert: $("stl_invert").checked, crop: $("stl_crop").checked ? crop : null, save,
            wrap: $("stl_wrap").value, radius_mm: +$("stl_radius").value, arc_deg: +$("stl_arc").value, lat_deg: +$("stl_lat").value };

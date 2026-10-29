@@ -205,7 +205,7 @@ export function start(canvas, page) {
   async function update() {
     const map = page.map();
     if (!map) return;
-    const s = page.settings(), key = JSON.stringify([map, s.smooth]);
+    const s = page.settings(), key = JSON.stringify([map, s.smooth, s.stl_follow !== false ? s.reshape : null]);
     const turns = s.orientation?.turns || 0, mirror = !!s.orientation?.mirror;
     inner.rotation.z = turns * Math.PI / 2;
     outer.scale.x = mirror ? -1 : 1;

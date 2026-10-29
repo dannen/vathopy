@@ -20,10 +20,10 @@ estimated from a photo, and a *look*: a JSON file with every setting. It gives y
 
 - **The add-on's maths:** the colour ramp, the depth controls, the ramp tilt, the Focus & Shape Bands and the
   Focus & Shape Areas (Add, Merge and Mask modes), with their colours and blend modes.
-- **vathopy's extras:** fringe cycles and contour lines, smoothing and anti-aliasing, a creative focus picked by
+- **vathopy's extras:** fringe cycles and contour lines, smoothing, anti-aliasing and clean edges, a creative focus picked by
   depth (tilted planes or 3D shapes), cutting away the far or near depths and deleting parts, selections with a
   palette of their own, the photo over the picture, a viewpoint shift, exaggerated depth, edge-aware local
-  contrast, and 65 palettes plus your own.
+  contrast, reshaping (grow or shrink a thing, move it nearer, bulge or push a spot), and 65 palettes plus your own.
 - **A GUI** in the browser to try all of it with sliders, with a 3D view, saving pictures and looks.
 - **3D printing:** STL reliefs and lithophanes, flat or wrapped round a cylinder or a sphere.
 - **Blender:** a look tuned in the add-on can be exported and rendered here unchanged.

@@ -104,6 +104,25 @@ extracted from Blender render exactly as before):
   small shapes (folds, faces, carvings) stand out, with sharp edges and no halos. ``c`` (0-0.9, default
   0) also shrinks the bigger differences, the steps between things, which tilts the surfaces beside
   each step towards each other. Before the ramp, so colours stay on it; the 3D print uses it too.
+* ``edge_cleanup`` (vathopy only): ``{"enabled": true, "width": px, "step": s}`` snaps the soft in-between
+  pixels the depth model leaves along depth edges (up to ``width`` output px either side, 0.5-8, where the depth
+  jumps by more than ``s``, 0.002-0.5 of the depth range) to the near or the far side, so fringes and colours
+  end in one clean line there instead of a ragged run of stray colours. First, specks (``specks``: groups of
+  up to that many map pixels, 0-400, 0 = keep them, whose depth stands out from what's round them by more
+  than ``s``, such as stray hairs the depth model left floating in the background) take the depth round
+  them. In the picture it runs at the supersampled size, so the line comes out anti-aliased; the 3D print
+  uses it too.
+* ``reshape`` (vathopy only): edits to the depth itself, applied first, in order (``enabled``, ``locked``):
+  ``{"kind": "depth", ...}`` brings a thing nearer or farther (``offset``, -0.5-0.5 of the depth range) and
+  makes its own relief deeper or flatter (``relief``, 0-3, 1 = as is); ``"scale"`` makes a thing bigger or
+  smaller (``scale``, 0.25-3) about its centre or its bottom (``anchor``), filling what it uncovers from the
+  background; both pick the thing like a selection (``point``, ``step``, ``range``, ``floors``, ``grow``,
+  ``softness``, ``invert``, ``size``). ``"bulge"`` swells (``amount`` > 0) or pinches (< 0, -1 to 1) round
+  ``point`` within ``radius`` (a share of the width, 0.01-1); ``"push"`` moves what's round ``point`` by
+  ``distance`` (a share of the width, 0-0.5) towards ``angle`` (degrees, 0 = right, 90 = up), fading out at
+  ``radius``, which stretches a limb. With ``only`` true a bulge or push works only on the thing it picks
+  (the selection fields, as above), laid over the background like a scaled thing. The overlay photo is
+  moved alike.
 * ``orientation``: ``{"turns": k, "mirror": m}`` turns the finished picture k quarter turns
   counter-clockwise, then mirrors it left-right if m; the last step, so focus pivots, ``at`` and
   everything else stay in the depth map's own coordinates.
@@ -142,16 +161,18 @@ DEFAULT_LOOK = {
     "view_shift": None,
     "exaggerate": None,
     "local_contrast": None,
+    "edge_cleanup": None,
+    "reshape": [],
 }
 
 DEFAULT_CUT = {"depth": 0.0, "near": 0.0, "softness": 0.0, "fill": "black", "keep": [], "remove": []}
 DEFAULT_KEEP = {"shape": "ellipsoid", "depth": 0.5, "at": None, "pivot": [0.5, 0.5], "size": [0.15, 0.15, 0.15], "length": 0.0,
                 "cone_angle": 30.0, "lean": 0.0, "angle": 0.0, "softness": 0.01, "enabled": True, "locked": False}
 
-DEFAULT_SELECTION = {"point": [0.5, 0.5], "step": 0.003, "range": 0.0, "grow": 1.0, "softness": 1.0, "floors": False, "ramp": None,
+DEFAULT_SELECTION = {"point": [0.5, 0.5], "step": 0.003, "range": 0.0, "grow": 1.0, "softness": 1.0, "floors": False, "size": 0.0, "ramp": None,
                      "cycles": None, "invert": False, "enabled": True, "locked": False}
 
-DEFAULT_REMOVE = {"point": [0.5, 0.5], "step": 0.003, "range": 0.0, "grow": 3.0, "softness": 1.0, "floors": False,
+DEFAULT_REMOVE = {"point": [0.5, 0.5], "step": 0.003, "range": 0.0, "grow": 3.0, "softness": 1.0, "floors": False, "size": 0.0,
                   "invert": False, "enabled": True, "locked": False}
 
 DEFAULT_OVERLAY = {"opacity": 0.5, "mode": "normal", "where": "all", "grey": False, "invert": False, "enabled": True}
@@ -162,6 +183,14 @@ DEFAULT_VIEW_SHIFT = {"x": 0.0, "y": 0.0, "strength": 0.05, "pivot": 0.5, "edges
 DEFAULT_EXAGGERATE = {"amount": 1.0, "size": 0.02, "enabled": True}
 
 DEFAULT_LOCAL_CONTRAST = {"amount": 0.5, "range": 0.1, "compress": 0.0, "enabled": True}
+
+DEFAULT_EDGE_CLEANUP = {"enabled": True, "width": 4.0, "step": 0.05, "specks": 9.0}
+
+DEFAULT_RESHAPE = {"kind": "depth", "point": [0.5, 0.5], "step": 0.003, "range": 0.0, "grow": 1.0, "softness": 2.0,
+                   "floors": False, "size": 0.0, "invert": False, "offset": 0.0, "relief": 1.0, "scale": 1.0,
+                   "anchor": "centre", "radius": 0.1, "amount": 0.0, "angle": 0.0, "distance": 0.0, "only": False,
+                   "enabled": True, "locked": False}
+RESHAPE_KINDS = ("depth", "scale", "bulge", "push")
 
 DEFAULT_CONTOURS = {"cycles": 4.0, "strength": 0.85, "width": 2.0}
 
@@ -213,10 +242,11 @@ def _check_region(r, where):
     if not (isinstance(pt, (list, tuple)) and len(pt) == 2 and all(0.0 <= float(v) <= 1.0 for v in pt)):
         raise ValueError(f"{where}.point must be [fx, fy], fractions of the picture (0-1)")
     r["point"] = [float(v) for v in pt]
-    for key in ("step", "range", "grow", "softness"):
+    for key in ("step", "range", "grow", "softness", "size"):
         r[key] = float(r[key])
-    if not (0.0 < r["step"] <= 1.0 and 0.0 <= r["range"] <= 1.0 and 0.0 <= r["grow"] <= 50.0 and 0.0 <= r["softness"] <= 50.0):
-        raise ValueError(f"{where}: step above 0 to 1, range 0-1, grow and softness 0-50 px")
+    if not (0.0 < r["step"] <= 1.0 and 0.0 <= r["range"] <= 1.0 and 0.0 <= r["grow"] <= 50.0 and 0.0 <= r["softness"] <= 50.0
+            and 0.0 <= r["size"] <= 1.0):
+        raise ValueError(f"{where}: step above 0 to 1, range 0-1, grow and softness 0-50 px, size 0 (unlimited) to 1")
     r["invert"], r["enabled"], r["floors"] = bool(r["invert"]), bool(r["enabled"]), bool(r["floors"])
 
 
@@ -370,6 +400,24 @@ def normalise(look):
         ex["amount"], ex["size"], ex["enabled"] = float(ex["amount"]), float(ex["size"]), bool(ex["enabled"])
         if not (0.0 <= ex["amount"] <= 10.0 and 0.002 <= ex["size"] <= 0.2):
             raise ValueError("exaggerate: amount 0-10, size 0.002-0.2 of the width")
+    if lk["edge_cleanup"] is not None:
+        ec = lk["edge_cleanup"] = _merge(DEFAULT_EDGE_CLEANUP, lk["edge_cleanup"], "edge_cleanup")
+        ec["width"], ec["step"], ec["enabled"] = float(ec["width"]), float(ec["step"]), bool(ec["enabled"])
+        ec["specks"] = float(ec["specks"])
+        if not (0.5 <= ec["width"] <= 8.0 and 0.002 <= ec["step"] <= 0.5 and 0.0 <= ec["specks"] <= 400.0):
+            raise ValueError("edge_cleanup: width 0.5-8 px, step 0.002-0.5 of the depth range, specks 0-400 px")
+    lk["reshape"] = [_merge(DEFAULT_RESHAPE, r, f"reshape[{i}]") for i, r in enumerate(lk["reshape"] or [])]
+    for i, r in enumerate(lk["reshape"]):
+        where = f"reshape[{i}]"
+        if r["kind"] not in RESHAPE_KINDS or r["anchor"] not in ("centre", "bottom"):
+            raise ValueError(f"{where}: kind must be one of {RESHAPE_KINDS}, anchor centre or bottom")
+        _check_region(r, where)
+        for key in ("offset", "relief", "scale", "radius", "amount", "angle", "distance"):
+            r[key] = float(r[key])
+        r["locked"], r["only"] = bool(r["locked"]), bool(r["only"])
+        if not (-0.5 <= r["offset"] <= 0.5 and 0.0 <= r["relief"] <= 3.0 and 0.25 <= r["scale"] <= 3.0
+                and 0.01 <= r["radius"] <= 1.0 and -1.0 <= r["amount"] <= 1.0 and 0.0 <= r["distance"] <= 0.5):
+            raise ValueError(f"{where}: offset -0.5-0.5, relief 0-3, scale 0.25-3, radius 0.01-1, amount -1 to 1, distance 0-0.5")
     if lk["tilt"] is not None:
         lk["tilt"] = _merge({"normal": [0.0, 1.0, 0.0], "x0": 0.0, "y0": 0.0, "fit": False}, lk["tilt"], "tilt")
     return lk

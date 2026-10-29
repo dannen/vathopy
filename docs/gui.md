@@ -122,10 +122,15 @@ install -e .`) means no reinstall is needed unless `requirements.txt` changed.
   the result and back.
 - **Speed:** while a slider moves, a fast preview renders (no anti-aliasing, at most `--preview-size` px,
   typically 50–100 ms); on release, the full-quality render (about 0.2–0.7 s at ~1200 px). The time of the last
-  render shows at the bottom left. Smoothing is computed once per radius. Click the picture for 100% view.
-- **Magnifier** (the lens at the top left of the picture area, or the Z key): a 200 px circle follows the mouse
+  render shows at the bottom left. Smoothing is computed once per radius.
+- **Clean edges** (Quality): cleans up the ragged run of stray colours along the edges between depths (see
+  [Clean edges](pictures.md#clean-edges)); on to start with. **On** switches it off and on; the slider sets how
+  far either side of an edge it cleans (4 px to start with). **Remove specks** (9 px to start with, 0 = keep them)
+  clears the little specks of depth that stand out from what's round them, such as stray hairs.
+- **Magnifier** (the Z key, either case, or the lens button at the top left of the picture area turns it on and
+  off; off to start with): a 200 px circle follows the mouse
   over the picture (either one in Side by side) and shows it 3× larger, pixels unsmoothed; the scroll wheel
-  sets 1.5× to 16× while it's on. Clicking still picks depths or switches to 100% view.
+  sets 1.5× to 16× while it's on. Clicking still picks spots.
 - **Auto (probe):** sets smoothing and the cycle or contour count to the most the map carries cleanly (see
   [Probing](pictures.md#probing-a-depth-map-for-the-most-detail)).
 - **Save local** (under the picture): writes the full-quality result as a 16-bit PNG to `--favourites` on the
@@ -198,6 +203,18 @@ install -e .`) means no reinstall is needed unless `requirements.txt` changed.
   that stops it: lower if it spills onto what's behind), Edge fine (−5…+5 steps of 0.0001 added to Edge), Depth
   range, Grow, Soft edge and its own Cycles.
   Targets are cleared when another depth map is chosen.
+- **Reshape:** **Pick a spot**, then click the picture. Each spot gets a panel (R1… on the picture) with a menu:
+  **Grow / shrink** (Scale, and whether it grows from its middle or its bottom), **Nearer / farther** (how much,
+  and Relief: deeper or flatter), **Bulge / pinch** (Amount) and **Push / stretch** (Direction and Distance);
+  the last two work on a round brush (Radius), and with **Only this thing** on just the thing under the spot,
+  leaving what's round it alone. Grow / shrink, Nearer / farther and Only this thing pick the thing round the
+  spot: **Size** says how far round it they reach along the surface, so a small one takes one arm and not the
+  other (scroll over its pin to change it), with **Size fine** (−5…+5 steps of 0.002), Edge and Edge fine, Depth
+  range, Grow, Soft edge, Stop at floors and Everything else. While you move those sliders the picture switches
+  to Highlights, with what it picked (or the brush) tinted teal, before the reshaping; the other sliders show
+  the result. Drag a pin to move it. **Reset** sets a panel's sliders and boxes back to the defaults; the spot
+  and the kind stay. See [Reshaping](pictures.md#reshaping). Cleared when another depth map is
+  chosen.
 - **Photo:** finds the photo each depth map was made from in `--photos` by name (`<photo>_depth_00001.exr` comes
   from `<photo>.jpg`, `.png` or another picture type; batch uploads in `batch-*` subfolders count; the newest
   wins) and says which, or where it looked. **Photo over the picture** blends it in, with a blend mode, where it
@@ -213,7 +230,9 @@ install -e .`) means no reinstall is needed unless `requirements.txt` changed.
   Far raised, Use the crop, **Detail**: Points across as typed, **medium** (50% of the map's pixels),
   **large** (75%) or **maximum** (every pixel: the most detail, big files), and **Deleted parts**: what Delete
   from far / near and deleted parts take away is **left out** (holes, and separate pieces; the default),
-  **flat on the base**, or printed anyway. The print follows the picture's viewpoint and exaggeration too. **Save local** writes the STL into `--favourites` on the machine running
+  **flat on the base**, or printed anyway. The print follows the picture's viewpoint and exaggeration too, and
+  with **Follow reshaping** (on to start with) the Reshape panels and Clean edges; off, it prints the depth
+  map's own shapes, and the 3D view shows them too. **Save local** writes the STL into `--favourites` on the machine running
   vathopy (`<map>_<look name or "vathopy">_relief.stl` or `…_lithophane.stl`, never overwriting: `-001`, …);
   **Download STL** sends the same file to the browser and writes nothing on the server. Both build it from the
   map (cropped and turned as the picture is shown) and say its size and triangle count. PrusaSlicer reads the

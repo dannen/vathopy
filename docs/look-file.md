@@ -25,12 +25,14 @@ Every key is optional; unknown keys are rejected so that typos don't pass silent
 | `groups` | `{}` | Merge groups: `{"Group 1": {"strength": 1.0, "blend": 0.0, "color": null, "color_blend": "NORMAL"}}` |
 | `solo` | `""` | Show only one area (its name) or one band (`"BAND:<id>"`) |
 | `depth_scale` | `1.0` | vathopy: how deep the scene is relative to its width, for shape focuses and keep shapes |
-| `cut` | `null` | vathopy: the deletion slabs, `{"depth": 0-1 (from far), "near": 0-1 (from near), "softness", "fill": "black"/"white", "keep": [shapes], "remove": [parts]}` (parts: `{"point", "step", "range", "floors", "grow", "softness", "invert"}`) |
-| `selections` | `[]` | vathopy: `[{"point": [fx, fy], "step", "range", "floors", "grow", "softness", "ramp": {…} or null, "cycles": n or null, "invert"}]` (see [Selections](pictures.md#selections)) |
+| `cut` | `null` | vathopy: the deletion slabs, `{"depth": 0-1 (from far), "near": 0-1 (from near), "softness", "fill": "black"/"white", "keep": [shapes], "remove": [parts]}` (parts: `{"point", "step", "range", "floors", "grow", "softness", "size", "invert"}`) |
+| `selections` | `[]` | vathopy: `[{"point": [fx, fy], "step", "range", "floors", "grow", "softness", "size", "ramp": {…} or null, "cycles": n or null, "invert"}]` (see [Selections](pictures.md#selections)) |
 | `overlay` | `null` | vathopy: the photo over the picture, `{"opacity", "mode", "where", "grey", "invert", "enabled"}` (see [Photo overlay](pictures.md#photo-overlay)) |
 | `view_shift` | `null` | vathopy: `{"x", "y", "strength", "pivot", "edges": "zoom"/"fill"}` (see [Viewpoint shift](pictures.md#viewpoint-shift)) |
 | `exaggerate` | `null` | vathopy: `{"amount": 0-10, "size": 0.002-0.2, "enabled"}` (see [Exaggerated depth](pictures.md#exaggerated-depth)) |
 | `local_contrast` | `null` | vathopy: `{"amount": 0-1, "range": 0.01-0.5, "compress": 0-0.9, "enabled"}` (see [Local contrast](pictures.md#local-contrast)) |
+| `edge_cleanup` | `null` | vathopy: `{"width": 0.5-8 px, "step": 0.002-0.5, "enabled"}` (see [Clean edges](pictures.md#clean-edges)) |
+| `reshape` | `[]` | vathopy: `[{"kind": "scale"/"depth"/"bulge"/"push", "point", …}]`, applied in order (see [Reshaping](pictures.md#reshaping)) |
 
 Mask targets: `ALL_BANDS`, `ALL_LIGHTS`, `BAND:<id>`, `LIGHT:<area id>`, `GROUP:<name>`.
 Colours (add-on 1.0.96): `color` null = off (strength pushes toward white / black), or `[r, g, b]` scene-linear

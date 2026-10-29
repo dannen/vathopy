@@ -49,8 +49,9 @@ from . import io as VIO
 from . import look as LOOK
 from . import meta as META
 from . import palettes as PAL
-from .engine import (deleted, exaggerate, focus_depth_at, focus_weights, local_contrast, orient, render, smooth_depth,
-                     view_shift)
+from . import engine as E
+from .engine import (deleted, exaggerate, focus_depth_at, focus_weights, local_contrast, orient, render, reshape,
+                     smooth_depth, view_shift)
 from .probe import probe
 from .ramp import PRESETS, Ramp, srgb_to_linear
 
@@ -140,6 +141,56 @@ def _edge_to_page(step):
     return round(coarse, 4), min(max(round((step - coarse) / EDGE_FINE), -5), 5)
 
 
+SIZE_STEP, SIZE_FINE = 0.01, 0.002      # a reshape's Size slider steps, and one step of its Size fine (-5..+5)
+
+
+def _size_from_page(it):
+    """Size (0 = unlimited) plus Size fine, as the page shows it."""
+    size = float(it.get("size", 0) or 0)
+    if size <= 0:
+        return 0.0
+    fine = min(max(round(float(it.get("size_fine", 0) or 0)), -5), 5)
+    return min(max(round(size + fine * SIZE_FINE, 4), 0.001), 1.0)
+
+
+def _size_to_page(size):
+    """A look's size back onto the two sliders."""
+    if size <= 0:
+        return 0.0, 0
+    coarse = min(max(SIZE_STEP, round(size / SIZE_STEP) * SIZE_STEP), 0.5)
+    return round(coarse, 4), min(max(round((size - coarse) / SIZE_FINE), -5), 5)
+
+
+RESHAPE_KEYS = ("range", "grow", "softness", "offset", "relief", "scale", "radius", "amount", "angle", "distance")
+
+
+def _reshape_from_page(items):
+    out = []
+    for it in (items or [])[:MAX_FOCUS]:
+        r = {k: float(it[k]) for k in RESHAPE_KEYS if it.get(k) is not None}
+        r.update({"kind": it.get("shape") or "scale",
+                  "point": [min(max(float(it.get("x", 0.5)), 0.0), 1.0), min(max(float(it.get("y", 0.5)), 0.0), 1.0)],
+                  "step": _edge_from_page(it), "size": _size_from_page(it), "floors": bool(it.get("floors")),
+                  "invert": bool(it.get("invert")), "anchor": it.get("anchor") or "centre", "only": bool(it.get("only")),
+                  "enabled": bool(it.get("enabled", True)), "locked": bool(it.get("locked", False))})
+        out.append(r)
+    return out
+
+
+def _reshape_to_page(lk):
+    out = []
+    for r in lk.get("reshape") or []:
+        step, fine = _edge_to_page(float(r.get("step", 0.003)))
+        size, size_fine = _size_to_page(float(r.get("size", 0) or 0))
+        pt = r.get("point", [0.5, 0.5])
+        out.append({"shape": r.get("kind", "depth"), "x": pt[0], "y": pt[1], "step": step, "step_fine": fine,
+                    "size": size, "size_fine": size_fine, "floors": bool(r.get("floors")), "invert": bool(r.get("invert")),
+                    "anchor": r.get("anchor", "centre"), "only": bool(r.get("only")), "enabled": bool(r.get("enabled", True)),
+                    "locked": bool(r.get("locked", False)),
+                    **{k: r[k] for k in RESHAPE_KEYS if k in r}})
+    return out
+
+
 def _selections_from_page(sels):
     return [{"point": [min(max(float(sel.get("x", 0.5)), 0.0), 1.0), min(max(float(sel.get("y", 0.5)), 0.0), 1.0)],
              "step": _edge_from_page(sel), "range": float(sel.get("range", 0.0) or 0.0),
@@ -204,6 +255,11 @@ def look_from_settings(s, preview=False):
                      "fill": s.get("cut_fill") or "black", "keep": keep, "remove": removes}
     if s.get("selections"):
         lk["selections"] = _selections_from_page(s["selections"])
+    if s.get("reshape"):
+        lk["reshape"] = _reshape_from_page(s["reshape"])
+    if s.get("edge_clean"):
+        lk["edge_cleanup"] = {"width": float(s.get("edge_width", 4.0) or 4.0),
+                              "specks": float(s.get("edge_specks", 9.0) if s.get("edge_specks") is not None else 9.0)}
     vx, vy = float(s.get("view_x", 0) or 0), float(s.get("view_y", 0) or 0)
     if vx or vy:
         lk["view_shift"] = {"x": vx, "y": vy, "strength": float(s.get("view_strength", 0.05) or 0.05)}
@@ -238,13 +294,32 @@ def look_from_settings(s, preview=False):
     return LOOK.normalise(lk)
 
 
+RESHAPE_COLOUR = (46, 196, 182)
+
+
+def _reshape_weights(depth, lk):
+    """What each switched-on reshape item works on, 0..1 (rows bottom-up): the thing it picked, its brush, or both."""
+    out = []
+    for r in lk["reshape"]:
+        if not r["enabled"]:
+            continue
+        if r["kind"] in ("depth", "scale"):
+            out.append(E._region(depth, lk, r))
+        else:
+            h, w = depth.shape
+            _, _, rad, _, _, dx, dy = E._brush(r, h, w)
+            brush = 0.5 * np.clip(1.0 - (dx * dx + dy * dy) / np.float32(rad * rad), 0.0, 1.0) ** 0.5
+            out.append(np.where(brush > 0, np.maximum(brush, E._region(depth, lk, r)), 0.0) if r["only"] else brush)
+    return out
+
+
 def highlight(depth, lk):
-    """The look without its focus, desaturated, with each focus's region tinted in its colour:
-    top-down 8-bit sRGB. A focus's region is its band weight (1 = fully in focus), the same
-    band the result uses."""
+    """The look without its focus or reshaping, desaturated, with each focus's region tinted in its colour
+    and what each reshape item works on in teal: top-down 8-bit sRGB. A focus's region is its band weight
+    (1 = fully in focus), the same band the result uses."""
     depth, _ = view_shift(depth, lk["view_shift"])          # the tints on the shifted view, like the picture
     lk = {**lk, "view_shift": None}
-    plain = LOOK.normalise({**lk, "focus": [], "base": "RAMP", "orientation": {"turns": 0, "mirror": False}})
+    plain = LOOK.normalise({**lk, "focus": [], "reshape": [], "base": "RAMP", "orientation": {"turns": 0, "mirror": False}})
     out, _ = render(depth, plain)
     rgb = _srgb8(out[..., :3]).astype(np.float32) / 255.0
     rgb = 0.85 * (0.35 * rgb + 0.65 * rgb.mean(axis=-1, keepdims=True))
@@ -254,6 +329,9 @@ def highlight(depth, lk):
         k = min(abs(float(lk["focus"][i]["strength"])), 1.0)
         a = HIGHLIGHT_ALPHA * (0.2 + 0.8 * k) * np.clip(w[..., None], 0.0, 1.0)   # strength 0: only a faint tint
         rgb = rgb * (1.0 - a) + (np.asarray(FOCUS_COLOURS[i % len(FOCUS_COLOURS)], np.float32) / 255.0) * a
+    for w in _reshape_weights(depth, lk):
+        a = HIGHLIGHT_ALPHA * np.clip(w[..., None], 0.0, 1.0)
+        rgb = rgb * (1.0 - a) + (np.asarray(RESHAPE_COLOUR, np.float32) / 255.0) * a
     return orient(np.round(rgb[::-1] * 255).astype(np.uint8), lk["orientation"])   # the tints are in map space
 
 
@@ -267,7 +345,10 @@ def settings_from_look(lk):
             "supersample": lk.get("supersample", 1), "equalize": bool(lk.get("equalize")),
             "orientation": dict(lk.get("orientation") or {"turns": 0, "mirror": False}),
             "depth_scale": float(lk.get("depth_scale", 1.0)), **_cut_settings(lk),
-            **_focus_settings(lk), "selections": _selections_to_page(lk), **_overlay_settings(lk)}
+            **_focus_settings(lk), "selections": _selections_to_page(lk), **_overlay_settings(lk),
+            "reshape": _reshape_to_page(lk), "edge_clean": bool(lk.get("edge_cleanup") and lk["edge_cleanup"].get("enabled", True)),
+            "edge_width": float((lk.get("edge_cleanup") or {}).get("width", 4.0)),
+            "edge_specks": float((lk.get("edge_cleanup") or {}).get("specks", 9.0))}
 
 
 def _overlay_settings(lk):
@@ -460,6 +541,8 @@ def mesh_preview(maps, req):
     s = req.get("settings", {})
     d = maps.depth(req["map"], float(s.get("smooth", 0) or 0))
     lk = look_from_settings(s, preview=True)
+    if s.get("stl_follow", True):                         # the 3D view follows the reshaping, like the print
+        d, _ = reshape(d, lk)
     d = local_contrast(exaggerate(d, lk["exaggerate"]), lk["local_contrast"])
     f = remapped(d, lk)
     lo, hi = _window(f, lk)
@@ -619,7 +702,7 @@ def make_handler(maps, favourites, preview_size, auth=None, palettes_dir=None):
                 d = _preview_depth(d, preview_size)
             lk = look_from_settings(s, preview=preview)
             t0 = time.perf_counter()
-            if req.get("view") == "highlight" and lk["focus"]:
+            if req.get("view") == "highlight" and (lk["focus"] or lk["reshape"]):
                 img = highlight(d, lk)
             else:
                 out, _ = render(d, lk, maps.photo(req["map"], lk))
@@ -650,6 +733,8 @@ def make_handler(maps, favourites, preview_size, auth=None, palettes_dir=None):
             o = {"turns": int(o.get("turns", 0) or 0), "mirror": bool(o.get("mirror"))}
             depth = maps.depth(req["map"], float(s.get("smooth", 0) or 0))          # rows bottom-up
             lk = look_from_settings({**s, "orientation": {}})
+            if not req.get("follow", True):              # Follow reshaping off: the map as it is
+                lk = {**lk, "reshape": [], "edge_cleanup": None}
             seen, gone = deleted(depth, lk)              # the depth as the picture sees it, and what its cut takes
             if req.get("mode") == "lithophane":
                 out, _ = render(depth, lk, maps.photo(req["map"], lk))

@@ -822,6 +822,52 @@ SELECT_WORK_PX = 1536  # selections grow on the depth at most this many px acros
 FLOOR_SLOPE = 0.4      # "floors": depth rising towards the viewer faster than this per picture height, going down
 SLIVER_PX = 12            # removed parts take in thin slivers of what's left within this many px (at the work size)
 SELECT_HOLE_AREA = 0.002  # unselected pockets smaller than this share of the picture, inside a selection, are filled
+SELECT_SIZE_WORK_PX = 640  # a selection's size limit is measured along the surface on a grid at most this many px across
+SELECT_SIZE_FADE = 0.15    # ... and fades out over this last share of it (a cut across a surface, not a depth edge)
+
+
+def _along_surface(m, x, row, reach):
+    """How far (px of ``m``'s grid) each pixel of the 0/1 mask ``m`` is from (x, row), going through
+    the mask only (a path along the surface, so it can't jump a gap): inf where it's out of reach.
+    Rings of 3 x 3 square and cross dilations, taken in turn, which measures nearly round distances."""
+    import cv2
+    h, w = m.shape
+    dist = np.full((h, w), np.inf, np.float32)
+    inside = m > 0
+    front = np.zeros((h, w), np.uint8)
+    front[row, x] = 1
+    dist[row, x] = 0.0
+    sq = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    cross = cv2.getStructuringElement(cv2.MORPH_CROSS, (3, 3))
+    n = int(math.ceil(reach / 1.2)) + 1                   # the two kernels in turn average ~1.2 px a step
+    for i in range(1, n + 1):
+        grown = cv2.dilate(front, sq if i % 2 else cross) & inside.astype(np.uint8)
+        new = (grown > 0) & ~np.isfinite(dist)
+        if not new.any():
+            break
+        dist[new] = i * 1.2
+        front = grown
+    return dist
+
+
+def size_weight(m, x, row, size, sw):
+    """A selection's ``size`` limit on its 0/1 mask ``m`` (the work grid, ``sw`` px wide; the point at
+    column x, row ``row``): 1 within ``size`` x the picture's width of the point, measured along the
+    selected surface, fading to 0 over the last part, so only what's local to the point is kept (one
+    arm, not both)."""
+    import cv2
+    h, w = m.shape
+    k = min(1.0, SELECT_SIZE_WORK_PX / max(h, w))
+    sm = (cv2.resize(m.astype(np.uint8), (max(2, round(w * k)), max(2, round(h * k))), interpolation=cv2.INTER_NEAREST)
+          if k < 1.0 else m.astype(np.uint8))
+    reach = size * sw * k
+    xs, rs = min(int(x * k), sm.shape[1] - 1), min(int(row * k), sm.shape[0] - 1)
+    sm[rs, xs] = 1
+    dist = _along_surface(sm, xs, rs, reach)
+    fade = max(SELECT_SIZE_FADE * reach, 2.0)
+    wt = np.clip((reach - dist) / fade, 0.0, 1.0).astype(np.float32)
+    wt = cv2.GaussianBlur(wt, (0, 0), 1.0) if min(wt.shape) > 4 else wt
+    return cv2.resize(wt, (w, h), interpolation=cv2.INTER_LINEAR) if wt.shape != (h, w) else wt
 
 
 def selection_mask(t, sel, px_scale=1, stop=None):
@@ -873,6 +919,9 @@ def selection_mask(t, sel, px_scale=1, stop=None):
         m[thin & near] = 1
     m = cv2.resize(m.astype(np.float32), (w, h), interpolation=cv2.INTER_LINEAR) if (sh, sw) != (h, w) else m.astype(np.float32)
     m = (m >= 0.5).astype(np.float32)
+    if sel.get("size", 0.0) > 0:                         # only what's local to the point, measured along the surface
+        wt = size_weight(block[1:-1, 1:-1] == 2, x, row, sel["size"], sw)
+        m = m * (cv2.resize(wt, (w, h), interpolation=cv2.INTER_LINEAR) if wt.shape != (h, w) else wt)
     g = sel["grow"] * px_scale
     if g >= 0.5:
         r = int(round(g))
@@ -1042,6 +1091,131 @@ def view_shift(depth, vs, photo=None):
     return np.ascontiguousarray(z[::-1]), (np.ascontiguousarray(extra[0][::-1]) if extra else None)
 
 
+# --- reshape (vathopy only) -------------------------------------------------------------------
+
+RESHAPE_BULGE = 0.9     # a bulge of amount 1 magnifies its centre 1 / (1 - this) times
+RESHAPE_COVER_TOL = 0.02  # a moved thing goes behind what's nearer than it by this share of the depth range (twice: fully)
+RESHAPE_EDGE = 0.02     # where the two sides differ by about this share of the depth range, the blend turns hard
+
+
+def _ease(x, a, b):
+    """0 below ``a``, 1 above ``b``, smooth between: so a threshold doesn't flip pixel by pixel on noise."""
+    t = np.clip((x - np.float32(a)) / np.float32(b - a), 0.0, 1.0)
+    return (t * t * (3.0 - 2.0 * t)).astype(np.float32)
+
+
+def _hard_at_edges(wt, diff, rng):
+    """A blend weight that stays soft where the two sides differ little (``diff``, per pixel: |a - b|) but is
+    0 or 1 across a depth edge, so a feathered edge doesn't paint a soft depth ramp (fringe stripes) there.
+    It turns hard gradually, between half and one and a half times RESHAPE_EDGE."""
+    hard = _ease(diff, 0.5 * RESHAPE_EDGE * rng, 1.5 * RESHAPE_EDGE * rng)
+    return (wt + hard * ((wt > 0.5).astype(np.float32) - wt)).astype(np.float32)
+
+
+def _remap(a, mx, my):
+    import cv2
+    return cv2.remap(np.ascontiguousarray(a), mx, my, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+
+
+def _brush(r, h, w):
+    """A bulge's or push's centre (column, row; rows bottom-up), radius in px, the pixel grid and each
+    pixel's offset from the centre."""
+    cx, cy = r["point"][0] * w - 0.5, (1.0 - r["point"][1]) * h - 0.5
+    gx, gy = np.meshgrid(np.arange(w, dtype=np.float32), np.arange(h, dtype=np.float32))
+    return cx, cy, max(r["radius"] * w, 1.0), gx, gy, gx - np.float32(cx), gy - np.float32(cy)
+
+
+def _region(depth, lk, r):
+    """The thing a reshape item picks, 0..1 (rows bottom-up), grown like a selection."""
+    f = remapped(depth, lk)
+    lo, hi = _window(f, lk)
+    t = np.clip((f - np.float32(lo)) / np.float32(hi - lo), 0.0, 1.0).astype(np.float32)
+    return selection_mask(t, r)
+
+
+def reshape(depth, lk, photo=None):
+    """A look's ``reshape`` items applied to the depth (rows bottom-up, near = bright) in order, and to the
+    photo (rows bottom-up, the same size) alike."""
+    items = [r for r in lk.get("reshape") or [] if r["enabled"]]
+    if not items:
+        return depth, photo
+    import cv2
+    d = np.ascontiguousarray(depth, dtype=np.float32)
+    h, w = d.shape
+    near = np.float32(-1.0 if lk["flip"] else 1.0)          # which way is nearer in the map's own values
+    for r in items:
+        rng = np.float32(float(d.max() - d.min()) or 1.0)
+        if r["kind"] == "depth":
+            if r["offset"] == 0.0 and r["relief"] == 1.0:
+                continue
+            m = _region(d, lk, r)
+            if not (m > 0.5).any():
+                continue
+            med = np.float32(np.median(d[m > 0.5]))
+            el = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+            m = _hard_at_edges(m, cv2.dilate(d, el) - cv2.erode(d, el), rng)
+            d = (d + m * (near * np.float32(r["offset"]) * rng + np.float32(r["relief"] - 1.0) * (d - med))).astype(np.float32)
+        elif r["kind"] == "scale":
+            if r["scale"] == 1.0:
+                continue
+            m = _region(d, lk, r)
+            sel = m > 0.5
+            if not sel.any():
+                continue
+            ys, xs = np.nonzero(sel)
+            cx = float(np.average(xs))
+            cy = float(ys.min()) if r["anchor"] == "bottom" else float(np.average(ys))   # row 0 = the bottom
+            k = float(r["scale"])
+            M = np.float32([[k, 0, cx * (1 - k)], [0, k, cy * (1 - k)]])
+
+            def warp(a):
+                return cv2.warpAffine(np.ascontiguousarray(a), M, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+            d, photo = _move_thing(d, photo, m, warp, near, rng)
+        else:
+            cx, cy, R, gx, gy, dx, dy = _brush(r, h, w)
+            q = np.clip(1.0 - (dx * dx + dy * dy) / np.float32(R * R), 0.0, 1.0) ** 2   # 1 at the centre, 0 at the radius
+            if r["kind"] == "bulge":
+                if r["amount"] == 0.0:
+                    continue
+                f = 1.0 - np.float32(RESHAPE_BULGE * r["amount"]) * q       # where each pixel comes from: nearer the centre
+                mx, my = np.float32(cx) + dx * f, np.float32(cy) + dy * f
+            else:
+                if r["distance"] == 0.0:
+                    continue
+                a = math.radians(r["angle"])
+                vx, vy = np.float32(r["distance"] * w * math.cos(a)), np.float32(r["distance"] * w * math.sin(a))   # rows go up
+                mx, my = gx - vx * q, gy - vy * q
+            mx, my = mx.astype(np.float32), my.astype(np.float32)
+            if r["only"]:                                 # the thing under the spot moves; what's round it stays
+                m = _region(d, lk, r)
+                if (m > 0.5).any():
+                    d, photo = _move_thing(d, photo, m, lambda a: _remap(a, mx, my), near, rng)
+                continue
+            d = _remap(d, mx, my)
+            if photo is not None:
+                photo = _remap(photo, mx, my).reshape(photo.shape)
+    return d, photo
+
+
+def _move_thing(d, photo, m, warp, near, rng):
+    """The thing ``m`` picked (0..1) moved by ``warp`` and laid over what's behind it: where it was is filled
+    from the background round it, and what's nearer than the moved thing stays in front. Both tests ease in
+    over a range of depths, so where the moved thing meets a surface at about its own depth (an upper arm
+    grown onto the chest) the seam is smooth instead of speckled."""
+    import cv2
+    h, w = d.shape
+    gone = cv2.dilate((m > 0.02).astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))) > 0
+    stack = d[..., None] if photo is None else np.dstack([d[..., None], photo])
+    bg = np.where(gone[..., None], _push_pull(stack, (~gone).astype(np.float32)), stack)   # what's behind it
+    ms, obj = warp(m), warp(stack).reshape(h, w, -1)
+    ahead = _ease((bg[..., 0] - obj[..., 0]) * near, RESHAPE_COVER_TOL * rng, 2 * RESHAPE_COVER_TOL * rng)   # nearer than it
+    cover = (ms * (1.0 - np.where(gone, 0.0, ahead))).astype(np.float32)
+    cover = _hard_at_edges(cover, np.abs(obj[..., 0] - bg[..., 0]), rng)[..., None]
+    out = cover * obj + (1.0 - cover) * bg
+    return (np.ascontiguousarray(out[..., 0], dtype=np.float32),
+            None if photo is None else np.ascontiguousarray(out[..., 1:], dtype=np.float32))
+
+
 def apply_overlay(out, photo, ov, sel_mask=None):
     """The photo (sRGB 0..1, rows bottom-up, the picture's size) blended over ``out`` (linear) as the
     look's ``overlay`` says, in sRGB terms as an image editor would; ``sel_mask`` is the selections' union."""
@@ -1102,6 +1276,112 @@ def contour_factor(norm, cycles, strength, width_px, rate):
 
 
 SMOOTH_RANGE = 0.04  # bilateral range sigma, as a fraction of the depth map's value range
+
+
+def remove_specks(depth, specks, step, px_scale=1):
+    """Specks gone: groups of up to ``specks`` map pixels (``px_scale``: for a supersampled depth) whose depth
+    stands out by more than ``step`` of the range from the median round them (stray hairs or blobs the
+    depth model left floating in the background) take the depth round them. Edges are left alone: their soft
+    ramps stand out too, but they run on in long groups."""
+    if not specks or specks <= 0:
+        return depth
+    import cv2
+    d = np.ascontiguousarray(depth, dtype=np.float32)
+    lo, rng = float(d.min()), float(d.max() - d.min())
+    if rng <= 0:
+        return depth
+    k = 2 * max(1, int(np.ceil(np.sqrt(specks) * px_scale))) + 1      # wider than any speck
+    q = np.clip((d - lo) / rng * 255.0 + 0.5, 0, 255).astype(np.uint8)  # 8 bits: only for finding them
+    med = cv2.medianBlur(q, k).astype(np.float32) / 255.0 * rng + lo
+    odd = np.abs(d - med) > step * rng
+    n, lab, stats, _ = cv2.connectedComponentsWithStats(odd.astype(np.uint8), connectivity=8)
+    small = stats[:, cv2.CC_STAT_AREA] <= specks * px_scale * px_scale
+    small[0] = False
+    sp = small[lab]
+    if not sp.any():
+        return depth
+    # each speck: the median depth of the ordinary pixels just round it, so one floating in the background
+    # becomes background (and one on a surface, that surface)
+    fill = d.copy()
+    el = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    for i in np.flatnonzero(small):
+        x, y, w, h = stats[i, :4]
+        y0, y1, x0, x1 = max(y - 3, 0), min(y + h + 3, d.shape[0]), max(x - 3, 0), min(x + w + 3, d.shape[1])
+        m = lab[y0:y1, x0:x1] == i
+        ring = (cv2.dilate(m.astype(np.uint8), el) > 0) & ~odd[y0:y1, x0:x1]
+        if ring.any():
+            r = d[y0:y1, x0:x1][ring]
+            if r.max() - r.min() > step * rng:                 # it sits on an edge: the side most of it touches
+                hi = r >= 0.5 * (r.max() + r.min())
+                r = r[hi] if hi.sum() * 2 >= r.size else r[~hi]
+            fill[y0:y1, x0:x1][m] = np.median(r)
+        else:
+            fill[y0:y1, x0:x1][m] = med[y0:y1, x0:x1][m]
+    return np.where(sp, fill, d).astype(np.float32)
+
+
+EDGE_FLAT = 0.2   # clean edges: ground whose depth varies by less than this share of ``step`` within 2 px is flat
+
+
+def clean_edges(depth, ec, px_scale=1):
+    """A look's ``edge_cleanup``: along each depth edge, where the depth jumps by more than ``step`` of its
+    range from one pixel to the next (of the map's own pixels: ``px_scale`` for a supersampled render), the
+    soft ramp up to ``width`` px either side becomes one clean step between the two sides' own depths. Each
+    side is a smooth average of its own ground in a thin ring round the band (just outside it, or flat
+    ground inside it), so the fill has no grain (not the extreme round it, which may belong to a third
+    thing), and the step goes where the ramp crosses halfway between them, so it follows
+    the edge smoothly between pixels and averaging a supersampled render back down anti-aliases it. The band
+    is the same width all along the edge, whatever each pixel's own slope, so a surface that rolls away
+    towards its outline (a head, a shoulder) isn't terraced; gentle slopes away from jumps are left alone."""
+    if ec is None or not ec["enabled"]:
+        return depth
+    import cv2
+    d = np.ascontiguousarray(depth, dtype=np.float32)
+    rng = float(d.max() - d.min()) or 1.0
+    d = remove_specks(d, ec.get("specks", 0.0), ec["step"], px_scale)
+    gx = cv2.Sobel(d, cv2.CV_32F, 1, 0, ksize=3) / 8.0
+    gy = cv2.Sobel(d, cv2.CV_32F, 0, 1, ksize=3) / 8.0
+    g = np.hypot(gx, gy) * px_scale
+    jump = g > ec["step"] * rng
+    if not jump.any():
+        return depth
+    reach = (ec["width"] + 1.0) * px_scale
+    dj = cv2.distanceTransform((~jump).astype(np.uint8), cv2.DIST_L2, 5)
+    band = dj <= reach
+    # where each side's depth comes from: outside the band, or ground inside it that's flat all round (a
+    # narrow strip between two edges keeps its own depth; the bottom of a dip along an outline doesn't count)
+    k = 2 * int(np.ceil(2.0 * px_scale)) + 1
+    ek = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
+    flat = (cv2.dilate(d, ek) - cv2.erode(d, ek)) <= EDGE_FLAT * ec["step"] * rng
+    good = ~band | (flat & (dj > 1.5 * px_scale))
+    if good.all() or not good.any():
+        return depth
+    n = 2 * int(np.ceil(reach + 2.0 * px_scale)) + 1         # far enough to see across the ramp, not to the next edge
+    el = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (n, n))
+    mid = 0.5 * (cv2.dilate(d, el) + cv2.erode(d, el))      # halfway between the depths round each pixel
+    upper = d >= mid
+    ring = good & (dj <= reach + 2.0 * px_scale)             # the ground just round the band
+    sigma = max(reach, 1.5 * px_scale)
+    out = d.copy()
+    for side in (upper, ~upper):
+        take = ~good & side
+        if not take.any() or not (good & side).any():
+            continue
+        # each pixel in the band: a smooth average of this side's ground in the ring round it, so the fill
+        # has no cells or grain; where the ring is out of reach, the nearest ground on this side
+        _, lab = cv2.distanceTransformWithLabels((~(good & side)).astype(np.uint8), cv2.DIST_L2, 5,
+                                                 labelType=cv2.DIST_LABEL_PIXEL)
+        vals = np.zeros(int(lab.max()) + 1, np.float32)
+        vals[lab[good & side]] = d[good & side]
+        fill = vals[lab]
+        w = (ring & side).astype(np.float32)
+        den = cv2.GaussianBlur(w, (0, 0), sigma)
+        avg = cv2.GaussianBlur(d * w, (0, 0), sigma) / np.maximum(den, 1e-6)
+        # trust the average only where it agrees with the nearest ground (it may reach another edge's ground)
+        t = np.clip(np.abs(avg - fill) / np.float32(0.5 * ec["step"] * rng), 0.0, 1.0)
+        fill = np.where(den > 1e-3, avg + t * (fill - avg), fill)
+        out[take] = fill[take]
+    return remove_specks(out, ec.get("specks", 0.0), ec["step"], px_scale)   # again: those that touched an edge
 
 
 def smooth_depth(depth, radius):
@@ -1205,9 +1485,10 @@ def local_contrast(depth, lc):
 
 
 def _prepared(depth, lk, photo_bu=None):
-    """The depth as a look sees it (moved by its view shift, smoothed, exaggerated, local contrast), the look with
-    its focus and keep points given in pixels resolved to depths and pivots, and the photo moved
+    """The depth as a look sees it (reshaped, moved by its view shift, smoothed, exaggerated, local contrast), the
+    look with its focus and keep points given in pixels resolved to depths and pivots, and the photo moved
     alike: what render and deleted work from."""
+    depth, photo_bu = reshape(depth, lk, photo_bu)
     depth, photo_bu = view_shift(depth, lk["view_shift"], photo_bu)
     if lk["smooth_depth"] > 0:
         depth = smooth_depth(depth, lk["smooth_depth"])
@@ -1235,6 +1516,7 @@ def deleted(depth, look):
     lk = normalise(look)
     depth = np.ascontiguousarray(depth, dtype=np.float32)
     depth, lk, _ = _prepared(depth, lk)
+    depth = clean_edges(depth, lk["edge_cleanup"])
     if lk["cut"] is None:
         return depth, None
     h_, w_ = depth.shape
@@ -1281,11 +1563,11 @@ def render(depth, look, photo=None):
             photo_bu = cv2.resize(photo_bu, (depth.shape[1] * ss, depth.shape[0] * ss), interpolation=cv2.INTER_LINEAR)
         lk = dict(lk, _photo=photo_bu)
     if ss <= 1:
-        out, info = _render(depth, lk)
+        out, info = _render(clean_edges(depth, lk["edge_cleanup"]), lk)
     else:
         import cv2
         h_, w_ = depth.shape
-        big = cv2.resize(depth, (w_ * ss, h_ * ss), interpolation=cv2.INTER_LINEAR)
+        big = clean_edges(cv2.resize(depth, (w_ * ss, h_ * ss), interpolation=cv2.INTER_LINEAR), lk["edge_cleanup"], ss)
         out_big, info = _render(big, dict(lk, _px_scale=ss))
         out = cv2.resize(out_big, (w_, h_), interpolation=cv2.INTER_AREA).astype(np.float32)
         info["size"] = [w_, h_]

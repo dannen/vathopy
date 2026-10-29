@@ -26,7 +26,9 @@ it; 180 runs pole to pole, closed at the poles), and the relief stands out from 
 What the look's cut deletes (`cut`: the slabs and removed parts) is left out of the print by default: holes
 where it was, separate pieces where it splits the picture, each on its own base. `--deleted flat` lays it
 flat on the base instead, `--deleted keep` prints it anyway. Wrapped prints can't have holes, so there it lies
-flat. The relief follows the look's viewpoint shift and exaggeration as well, like the picture.
+flat. The relief follows the look's viewpoint shift and exaggeration as well, like the picture, and its
+[reshaping](pictures.md#reshaping) and [clean edges](pictures.md#clean-edges); `--no-reshape` leaves those two
+out and prints the depth map's own shapes.
 
 ```bash
 vathopy relief depth.exr -o vase.stl --wrap cylinder --radius-mm 40 --relief-mm 5 --base-mm 2

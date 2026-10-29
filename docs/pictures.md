@@ -68,6 +68,22 @@ vathopy render depth.exr --preset VERMILION_INK_CYAN --contours 8 --smooth-depth
 ![2x crop: plain, smoothed, smoothed and anti-aliased](../examples/twilight/smoothing.jpg)
 
 Both apply to everything (contours, cycles, bands, area edges), are look keys (`"smooth_depth": 4`, `"supersample": 3`), and are off by default. The output is always the depth map's own size.
+
+## Clean edges
+
+Where a near thing meets what's behind it, the depth model leaves a soft ramp a few pixels wide. With cycles
+or a busy palette the colours run through that ramp, so the edge becomes a ragged line of stray colours, and
+anti-aliasing only averages them. `edge_cleanup` turns the ramp along each edge into one clean step between
+the two sides' own depths: each side takes the depth of the ground just beside the ramp, and the step goes where
+the ramp crosses halfway, so it follows the edge smoothly. It runs at the anti-aliased size, so the step comes
+out as a smooth line: `{"width": 4, "step": 0.05, "specks": 9, "enabled": true}`. `width` (0.5–8 px) is how far either side
+of an edge it cleans; `step` (0.002–0.5 of the depth range, per pixel) is how big a jump has to be to count as
+an edge; `specks` (0–400 map pixels, 0 keeps them) removes specks first: little groups of pixels whose depth
+stands out from what's round them, like stray hairs the depth model left floating in the background, take
+the depth round them. A surface that rolls away towards its outline (a head, a shoulder) is cleaned evenly along the edge
+rather than pixel by pixel, so it isn't terraced, and gentle slopes away from edges are left alone. It's off
+unless the look has it (the GUI starts with it on), and the 3D print uses it too.
+
 ## Probing a depth map for the most detail
 
 ```bash
@@ -238,3 +254,37 @@ too (the look's, or `--exaggerate A --detail-size S`).
 The result is scaled back into the depth's own range. It runs before the palette, so colours stay on the ramp,
 and the 3D view and 3D print use it too. CLI: `vathopy render ... --local-contrast 0.5 [--lc-range 0.1]
 [--lc-compress 0.3]` (also on `vathopy relief`).
+
+## Reshaping
+
+`reshape` changes the depth map itself before anything else, so the picture, the 3D view and the 3D print all
+follow it, and the photo overlay moves with it. It's a list, applied in order; each item has a `kind`:
+
+- **`scale`** (Grow / shrink): makes a thing bigger or smaller (`scale` 0.25–3) about its middle or, with
+  `"anchor": "bottom"`, its bottom (feet stay on the ground). Growing covers what's round it; shrinking fills
+  what it uncovers from the background around it. It goes behind things that are nearer than it.
+- **`depth`** (Nearer / farther): moves a thing nearer (`offset` > 0) or farther (< 0), as a share of the depth
+  range (−0.5 to 0.5), and makes its own relief deeper or flatter (`relief`, 0–3, 1 = as it is).
+- **`bulge`**: swells what's within `radius` (a share of the picture's width) of `point` (`amount` > 0, up to 1)
+  or pinches it (< 0). The middle grows most; the edge of the brush stays put.
+- **`push`**: moves what's round `point` by `distance` (a share of the width, up to 0.5) towards `angle`
+  (degrees: 0 = right, 90 = up), fading out at `radius`. Pushing a hand outward stretches the arm.
+
+`scale` and `depth` pick a thing like a [selection](#selections) (`point`, `step`, `range`, `floors`, `grow`,
+`softness`, `invert`) plus **`size`**: how far from the point it reaches, measured along the surface, as a share
+of the picture's width (0 = everything joined to it). Since it follows the surface, a small size takes the arm
+you clicked and stops before it reaches the other one across the body, though both are at the same depth.
+Where the size cuts across a surface (a shoulder) the edit fades out; where the thing meets something at
+another depth the edge stays sharp, so no stripes of colour appear there.
+
+`bulge` and `push` work on everything under the brush. With **`"only": true`** they work only on the thing they
+pick (the same fields as `scale` and `depth`): the arm swells or stretches over the background, and the
+background stays as it is instead of bending with it.
+
+```json
+{"cycles": 4, "edge_cleanup": {},
+ "reshape": [{"kind": "scale", "point": [0.34, 0.08], "size": 0.05, "scale": 1.5},
+             {"kind": "push", "point": [0.6, 0.4], "radius": 0.08, "distance": 0.03, "angle": 180}]}
+```
+
+`vathopy relief` prints the reshaped depth; `--no-reshape` prints the map's own shapes instead.
